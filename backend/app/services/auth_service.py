@@ -6,7 +6,15 @@ This module contains authentication-related business logic.
 
 import re
 
-from app.core.security import create_access_token, get_password_hash, verify_password
+from jose import JWTError
+
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.models.financial_profile import FinancialProfile
 from app.models.user import User
 from app.repositories import FinancialProfileRepository, UserRepository
@@ -91,9 +99,10 @@ class AuthService(BaseService[User]):
 
         return created_user
 
-    async def login(self, identifier: str, password: str) -> str:
+    async def login(self, identifier: str, password: str) -> tuple[str, str]:
         """
-        Authenticate a user by email, phone number, or username, and return a JWT access token.
+        Authenticate a user by email, phone number, or username, and return a
+        (access_token, refresh_token) pair.
         """
         clean_identifier = identifier.strip()
 
@@ -113,13 +122,43 @@ class AuthService(BaseService[User]):
         if not verify_password(password, user.hashed_password):
             raise ValueError("Incorrect password")
 
-        # Generate JWT access token
+        return self._issue_token_pair(user)
+
+    async def refresh_access_token(self, refresh_token: str) -> tuple[str, str]:
+        """
+        Validate a refresh token and issue a new (access_token, refresh_token)
+        pair, rotating the refresh token so each one can only be used once.
+        """
+        try:
+            payload = decode_refresh_token(refresh_token)
+        except JWTError:
+            raise ValueError("Invalid or expired refresh token")
+
+        user_id = payload.get("user_id")
+        if user_id is None:
+            raise ValueError("Invalid or expired refresh token")
+
+        user = await self.get_by_id(int(user_id))
+        if not user:
+            raise ValueError("User no longer exists")
+        if not user.is_active:
+            raise ValueError("This account has been deactivated")
+
+        return self._issue_token_pair(user)
+
+    def _issue_token_pair(self, user: User) -> tuple[str, str]:
+        """
+        Build the shared identity claims and issue a fresh access + refresh
+        token pair for the given user.
+        """
         token_data = {
             "sub": user.email if user.email else user.phone_number,
             "user_id": user.id,
             "username": user.username,
         }
-        return create_access_token(data=token_data)
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+        return access_token, refresh_token
 
     async def get_current_user(self, user_id: int) -> User:
         """
@@ -129,3 +168,44 @@ class AuthService(BaseService[User]):
         if not user:
             raise ValueError("User no longer exists")
         return user
+
+    async def update_profile(self, user: User, updates: dict) -> User:
+        """
+        Apply a partial profile update to an already-authenticated user.
+
+        `updates` is a dict of already-validated UserUpdate fields with
+        unset fields excluded (see UserUpdate.model_dump(exclude_unset=True)
+        at the call site). Uniqueness is re-checked here against other
+        users, and a new password (if provided) is hashed before storage.
+        """
+        if "username" in updates and updates["username"] != user.username:
+            new_username = updates["username"]
+            if new_username:
+                existing = await self.repository.get_by_username(new_username)
+                if existing and existing.id != user.id:
+                    raise ValueError("Username already exists")
+            user.username = new_username
+
+        if "phone_number" in updates and updates["phone_number"] != user.phone_number:
+            new_phone = updates["phone_number"]
+            if new_phone:
+                existing = await self.repository.get_by_phone_number(new_phone)
+                if existing and existing.id != user.id:
+                    raise ValueError("Phone number already exists")
+            user.phone_number = new_phone
+
+        if "email" in updates and updates["email"] != user.email:
+            new_email = updates["email"].strip().lower() if updates["email"] else None
+            if new_email:
+                existing = await self.repository.get_by_email(new_email)
+                if existing and existing.id != user.id:
+                    raise ValueError("Email already exists")
+            user.email = new_email
+
+        if "password" in updates and updates["password"]:
+            user.hashed_password = get_password_hash(updates["password"])
+
+        if not user.phone_number and not user.email:
+            raise ValueError("At least one of phone number or email is required")
+
+        return await self.update(user)

@@ -26,6 +26,10 @@ from app.repositories import (
     RecurringTransactionRepository,
     SavingsGoalRepository,
     SMSMessageRepository,
+    TontineContributionRepository,
+    TontineGroupRepository,
+    TontineMemberRepository,
+    TontinePayoutRepository,
     TransactionRepository,
     UserRepository,
 )
@@ -38,7 +42,9 @@ from app.services import (
     NotificationService,
     RecurringTransactionService,
     SavingsGoalService,
+    SearchService,
     SMSService,
+    TontineService,
     TransactionService,
     UserService,
 )
@@ -72,6 +78,27 @@ def get_savings_goal_service(db: AsyncSession = Depends(get_db)) -> SavingsGoalS
 
 def get_ai_service() -> AIService:
     return AIService()
+
+
+def get_tontine_service(db: AsyncSession = Depends(get_db)) -> TontineService:
+    return TontineService(
+        TontineGroupRepository(db),
+        TontineMemberRepository(db),
+        TontineContributionRepository(db),
+        TontinePayoutRepository(db),
+        notification_service=get_notification_service(db),
+    )
+
+
+def get_search_service(db: AsyncSession = Depends(get_db)) -> SearchService:
+    return SearchService(
+        AccountRepository(db),
+        TransactionRepository(db),
+        SavingsGoalRepository(db),
+        RecurringTransactionRepository(db),
+        NotificationRepository(db),
+        TontineGroupRepository(db),
+    )
 
 
 # --- Services with cross-repository dependencies -----------------------------------------
@@ -111,6 +138,7 @@ def get_sms_service(
         SMSMessageRepository(db),
         transaction_service=get_transaction_service(db, ai_service),
         account_service=get_account_service(db),
+        ai_service=ai_service,
     )
 
 
@@ -168,6 +196,11 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        # Refresh tokens are signed with the same secret but carry
+        # scope="refresh" - they must never authorize a normal request,
+        # only a call to POST /auth/refresh.
+        if payload.get("scope") == "refresh":
+            raise credentials_exception
         user_id = payload.get("user_id")
         if user_id is None:
             raise credentials_exception

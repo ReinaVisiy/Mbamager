@@ -4,7 +4,7 @@ Mbamager Notification Repository
 This module defines the data access layer for Notification entities.
 """
 
-from sqlalchemy import select
+from sqlalchemy import cast, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
@@ -37,5 +37,27 @@ class NotificationRepository(BaseRepository[Notification]):
             Notification.user_id == user_id,
             Notification.is_read == False
         ).order_by(Notification.created_at.desc())
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def search(self, user_id: int, query: str, limit: int = 5) -> list[Notification]:
+        """
+        Search a user's notifications by title, message, or type, newest
+        first.
+        """
+        pattern = f"%{query}%"
+        stmt = (
+            select(Notification)
+            .where(
+                Notification.user_id == user_id,
+                or_(
+                    Notification.title.ilike(pattern),
+                    Notification.message.ilike(pattern),
+                    cast(Notification.type, String).ilike(pattern),
+                ),
+            )
+            .order_by(Notification.created_at.desc())
+            .limit(limit)
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()

@@ -16,6 +16,12 @@ from app.repositories.savings_goal_repository import SavingsGoalRepository
 from app.repositories.recurring_transaction_repository import RecurringTransactionRepository
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.password_reset_otp_repository import PasswordResetOTPRepository
+from app.repositories.tontine_repository import (
+    TontineGroupRepository,
+    TontineMemberRepository,
+    TontineContributionRepository,
+    TontinePayoutRepository,
+)
 
 __all__: list[str] = [
     "BaseRepository",
@@ -29,4 +35,8 @@ __all__: list[str] = [
     "RecurringTransactionRepository",
     "NotificationRepository",
     "PasswordResetOTPRepository",
+    "TontineGroupRepository",
+    "TontineMemberRepository",
+    "TontineContributionRepository",
+    "TontinePayoutRepository",
 ]

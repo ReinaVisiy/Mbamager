@@ -45,8 +45,8 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 ---
 
 ## 6. Current Sprint
-*   **Active Sprint:** Sprint 6 — Hardening (in progress)
-*   **Goal:** Sprints 3–5 (auth/schemas, transaction ledger, AI coaching & scam alerts) are functionally complete — see Section 7. Current work is fixing bugs and gaps found in a full code/spec review, tracked as `fix #N` commits, plus closing the remaining product gaps in Section 8.
+*   **Active Sprint:** Sprint 8 complete — all 5 items from the last master review are closed. See Section 7.
+*   **Goal going forward:** Keep expanding test coverage (AI services still untested).
 
 ---
 
@@ -77,25 +77,27 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 *   [x] Removed the dead, unused `backend/app/routers/` package (`fix #13`).
 *   [x] Fixed a real production bug in `BaseRepository.create()`/`update()`: neither refreshed the object after `flush()`, so any model with an `onupdate=func.now()` column (e.g. `Transaction.updated_at`) crashed with `MissingGreenlet` the moment a response tried to serialize it — reproduced via the new transaction tests below (`fix #14`).
 *   [x] Added unit/API test coverage for the transaction ledger (Decimal precision round-trip, validation, CRUD, cross-user access), the SMS Stage-1 regex parser (all 8 message shapes plus the Gemini-fallback `None` cases), and the budget risk classifier — 28 tests total, up from 5 (`fix #15`).
+*   [x] Verified `google-genai` SDK compatibility against the current Gemini 3.x model lineup and bumped the pin from `0.5.0` to `2.14.0` (`fix #17`).
+*   [x] **Sprint 7 — Njangi/Tontine Groups:** Built the full backend feature — `TontineGroup`/`TontineMember`/`TontineContribution`/`TontinePayout` models, repositories, `TontineService` (membership, per-cycle contribution collection with duplicate rejection, computed cycle-status snapshots, rotation payout that validates full collection and auto-advances the cycle), REST endpoints under `/api/v1/tontine`, an Alembic migration for the 4 new tables, and 6 new tests covering the full rotation end-to-end. No custody of funds — amounts collected per cycle are always summed live from contribution rows, never cached, matching the "AI never owns money" / "nothing important is duplicated" laws.
+*   [x] **Sprint 8 — Search at scale:** Replaced client-side-only `GlobalSearch.tsx` (fetch entire accounts/transactions/goals/recurring/notifications, filter with `.includes()` in the browser) with a real `/api/v1/search?q=...` endpoint. Each entity type gets a scoped, SQL-level `search()` method (filtered by `user_id`, `LIMIT`ed in the query) so cost stays proportional to the result limit rather than to total data volume. Frontend now debounces (250ms) before calling the endpoint. Tontine groups are indexed too.
+*   [x] Ran a full lint pass (`ruff --select=F,E9`) across the backend and fixed the 8 genuine findings — unused imports, a stray f-string, one shadowed import (`fix #18`). The remaining "undefined name" warnings on `models/*.py` relationship declarations are false positives (SQLAlchemy string forward-refs).
+*   [x] **Sprint 9 — Tontine/Njangi frontend:** Built the React UI (`pages/Tontine.tsx`, `services/tontine.ts`) for creating groups, adding members, recording contributions, and viewing cycle status, wired to the Sprint 7 backend. `GlobalSearch.tsx` results for tontine groups now resolve to a real page.
+*   [x] Added a startup check (`Settings._reject_insecure_jwt_secret_in_production` in `core/config.py`) that refuses to run with the hardcoded `JWT_SECRET_KEY` placeholder when `DEBUG=False`, closing the publicly-known-secret risk.
+*   [x] Added Dockerfiles for the backend and frontend and wired both into `docker-compose.yml`, so `docker compose up` brings up the full stack (previously only Postgres was containerized).
+*   [x] Expanded test coverage to 99 tests total.
 
 ---
 
 ## 8. Pending Tasks
 
-### Sprint 6 — Hardening (current)
-*   [ ] Continue expanding test coverage — transaction ledger, SMS Stage-1 parsing, and budget risk classification now have unit/API tests (`fix #14`/`#15`), but budgets' full progress calculation, goals, recurring transactions, and the AI services (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE) are still untested.
-*   [x] Verified `google-genai` SDK compatibility against the current Gemini 3.x model lineup and bumped the pin from `0.5.0` to `2.14.0` (`fix #17`). `gemini-3.5-flash` (`GEMINI_MODEL`) is GA and current; Google now recommends `google-genai>=2.0.0`. The code only uses the stable `client.models.generate_content()` interface (not the newer Interactions API, which has breaking changes across versions), and that surface is unchanged between `0.5.0` and `2.14.0` — confirmed by import checks and the full test suite (54/54) passing unmodified against the new pin. Not yet verified against a live Gemini API call (no API key available in this environment) — recommend a smoke test against a real key before relying on this in production.
-
-### Sprint 7 — Njangi / Tontine Groups (not started)
-*   [ ] Design and implement a group-savings model (no `NjangiGroup`-equivalent exists yet; `AccountType`/`AccountProvider` have no group-savings option). The product vision (Section 1) and pitch (Section 2) both promise this, but it is not yet built.
-
-### Sprint 8 — Search at scale (not started)
-*   [ ] Global search (Ctrl+K) currently exists only as client-side filtering over fully-fetched accounts/transactions/goals/recurring/notifications (`GlobalSearch.tsx`). Fine at MVP scale; will need a real backend `/search` endpoint once transaction history grows.
+### Sprint 9 — Hardening & follow-through (current)
+*   [ ] Continue expanding test coverage — transactions, SMS Stage-1 parsing, budget risk classification, savings goals, recurring transactions, tontine rotation, and search are now tested (99 tests total), but the AI services (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE) remain untested since they require a live Gemini API key to exercise meaningfully.
+*   [ ] `google-genai` SDK pin has not been smoke-tested against a live Gemini API call yet (no API key available in the review environment) — recommend testing against a real key before relying on it in production.
 
 ---
 
 ## 9. Next Immediate Task
-*   **Sprint 6:** Continue expanding test coverage — budgets' full progress calculation, goals, recurring transactions, then the AI services.
+*   **Sprint 9:** Continue expanding AI service test coverage (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE remain untested).
 
 ---
 
@@ -127,7 +129,7 @@ mbamager/
 │   ├── alembic/              # Database migration version files
 │   ├── app/
 │   │   ├── ai/               # AI Cognitive services (M-PARSE, COMPASS, etc.)
-│   │   ├── api/routes/       # FastAPI HTTP request handlers, registered in main.py
+│   │   ├── api/routes/       # FastAPI HTTP request handlers, registered in main.py (incl. tontine.py, search.py)
 │   │   ├── constants/        # static values (providers, categories, currencies)
 │   │   ├── core/             # JWT, Bcrypt security, and global configuration
 │   │   ├── database/         # Session managers and ORM Declarative Base
@@ -155,10 +157,9 @@ mbamager/
 
 ---
 
-## 13. Known Limitations (Sprint 6)
-*   **Test coverage still growing:** transaction ledger, SMS Stage-1 parsing, and budget risk classification are now covered (28 tests total); budgets' progress calc, goals, recurring transactions, and all AI services remain untested. See Section 8.
-*   **No Njangi/Tontine support yet:** promised in the product vision but not yet modeled or built. See Section 8.
-*   **Search doesn't scale:** global search is client-side only, fetching full collections per open. Fine for MVP, not for growth. See Section 8.
+## 13. Known Limitations (Sprint 9)
+*   **AI services untested:** M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, and GUIDE require a live Gemini API key to test meaningfully and remain uncovered. Everything else (transactions, SMS Stage-1, budgets, goals, recurring, tontine rotation, search) has test coverage — 99 tests total.
+*   **`google-genai` SDK pin untested against a live key:** no Gemini API key is available in the review environment, so the pin hasn't been smoke-tested against a real call.
 
 ---
 
@@ -174,3 +175,5 @@ mbamager/
 *   **2026-07-26 (cont'd):** Shipped the remaining Sprint 4/5 work: APScheduler-driven recurring transactions (`fix #5`), Scam Sentinel (`fix #6`), Budget Coach (`fix #7`), Financial Assistant / GUIDE (`fix #8`), and a `/dashboard/insights` crash fix (`fix #9`). Full code-vs-spec review surfaced further gaps; fixed the missing `recharts` frontend dependency (`fix #10`) and an invalid CORS config (`fix #11`). This document itself was significantly out of date — Sections 6–9 and 13 above have been rewritten to match the code's actual state rather than the Sprint 3 snapshot they were frozen at.
 *   **2026-07-26 (cont'd):** Removed the dead `backend/app/routers/` package (`fix #13`) and corrected the Section 12 folder tree, which had never listed the real `backend/app/api/routes/` directory in the first place.
 *   **2026-07-26 (cont'd):** Began expanding test coverage per Section 8. Writing tests for transaction creation surfaced a real bug: `BaseRepository.create()`/`update()` never refreshed after `flush()`, so `onupdate=func.now()` columns crashed API responses with `MissingGreenlet` (`fix #14`). Added 23 new tests across transactions, SMS Stage-1 parsing, and budget risk classification (`fix #15`).
+*   **2026-07-27:** Closed the last master-review list. Verified `google-genai` pin against current Gemini 3.x (`fix #17`). Built Sprint 7 (Njangi/Tontine groups) end-to-end on the backend: 4 new models, repositories, `TontineService` with rotation logic, REST routes, an Alembic migration, and 6 tests. Built Sprint 8 (search at scale): replaced client-side-only `GlobalSearch.tsx` with a real `/api/v1/search` endpoint backed by scoped, SQL-level queries per entity type, plus 4 tests; frontend now debounces before calling it. Ran a full `ruff` pass and fixed the 8 genuine lint findings (`fix #18`). Test suite: 28 → 64.
+*   **2026-07-27 (cont'd):** Master-review follow-through: implemented `/auth/refresh` end-to-end, made profile management (name/phone/email) editable from `/auth/me` and the UI, and wired real backend session-duration logic behind "Remember Me". Added Dockerfiles for the backend and frontend and wired both into `docker-compose.yml` so the full stack runs via `docker compose up`. Corrected this document's stale claims: the Tontine/Njangi frontend (`pages/Tontine.tsx`) is built and shipped, not pending; the `JWT_SECRET_KEY` production-default risk was already closed by a startup check in `core/config.py`; and the test count was updated from a stale 64 to the actual current count of 99.

@@ -135,3 +135,70 @@ export const storage = {
     }
   }
 };
+
+/**
+ * "Remember Me"-aware storage for auth state (access token, refresh token,
+ * cached user profile). When remembered, values live in localStorage and
+ * survive a full browser restart. When not remembered, values live in
+ * sessionStorage and are cleared the moment the tab/browser closes.
+ * get() checks both so a session started either way is still readable.
+ */
+export const authStorage = {
+  get<T>(key: string, defaultValue: T): T {
+    try {
+      const fromLocal = window.localStorage.getItem(key);
+      if (fromLocal !== null) return JSON.parse(fromLocal) as T;
+      const fromSession = window.sessionStorage.getItem(key);
+      if (fromSession !== null) return JSON.parse(fromSession) as T;
+      return defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  },
+
+  set<T>(key: string, value: T, remember: boolean): void {
+    try {
+      const serialized = JSON.stringify(value);
+      if (remember) {
+        window.localStorage.setItem(key, serialized);
+        window.sessionStorage.removeItem(key);
+      } else {
+        window.sessionStorage.setItem(key, serialized);
+        window.localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.error('Error writing auth storage', e);
+    }
+  },
+
+  remove(key: string): void {
+    try {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    } catch (e) {
+      console.error('Error removing auth storage', e);
+    }
+  },
+
+  /**
+   * Whether the current session was stored to persist across browser
+   * restarts. Defaults to true so existing (pre-this-feature) sessions
+   * that only ever wrote to localStorage keep working.
+   */
+  isRemembered(): boolean {
+    try {
+      const flag = window.localStorage.getItem('mb_remember_session');
+      return flag === null ? true : flag === 'true';
+    } catch {
+      return true;
+    }
+  },
+
+  setRemembered(remember: boolean): void {
+    try {
+      window.localStorage.setItem('mb_remember_session', String(remember));
+    } catch (e) {
+      console.error('Error writing session persistence flag', e);
+    }
+  },
+};

@@ -39,19 +39,22 @@ import { accountsService } from '../services/accounts';
 import { Transaction, TransactionDirection } from '../types';
 import { formatXAF, formatDate } from '../utils/format';
 
-// Available categories defined in backend models
+// Available categories defined in backend models. `value` must be the exact
+// TransactionCategory enum VALUE the backend accepts (see
+// backend/app/constants/categories.py) — not the enum member name — since
+// this value is sent as-is in create/update/filter requests.
 const STANDARD_CATEGORIES = [
-  { value: 'INCOME_SALARY', label: 'Salary & Wages', type: 'CREDIT' },
-  { value: 'INCOME_BUSINESS', label: 'Business Revenue', type: 'CREDIT' },
-  { value: 'INCOME_REMITTANCE', label: 'Remittances', type: 'CREDIT' },
-  { value: 'EXPENSE_FOOD', label: 'Food & Groceries', type: 'DEBIT' },
-  { value: 'EXPENSE_UTILITIES', label: 'Utilities & Telecom', type: 'DEBIT' },
-  { value: 'EXPENSE_HEALTH', label: 'Health & Medical', type: 'DEBIT' },
-  { value: 'EXPENSE_EDUCATION', label: 'Education & Tuition', type: 'DEBIT' },
-  { value: 'EXPENSE_TRANSPORT', label: 'Transportation', type: 'DEBIT' },
-  { value: 'EXPENSE_COMMISSION', label: 'Fees & Commissions', type: 'DEBIT' },
-  { value: 'SAVINGS', label: 'Savings & Deposits', type: 'DEBIT' },
-  { value: 'INVESTMENT', label: 'Investments', type: 'DEBIT' }
+  { value: 'Salary / Wages', label: 'Salary & Wages', type: 'CREDIT' },
+  { value: 'Business / Trade', label: 'Business Revenue', type: 'CREDIT' },
+  { value: 'Remittance / Support', label: 'Remittances', type: 'CREDIT' },
+  { value: 'Food & Groceries', label: 'Food & Groceries', type: 'DEBIT' },
+  { value: 'Electricity / Water / Internet', label: 'Utilities & Telecom', type: 'DEBIT' },
+  { value: 'Medical & Health', label: 'Health & Medical', type: 'DEBIT' },
+  { value: 'School Fees / Education', label: 'Education & Tuition', type: 'DEBIT' },
+  { value: 'Taxi / Moto / Transport', label: 'Transportation', type: 'DEBIT' },
+  { value: 'Operator Cashout Fees', label: 'Fees & Commissions', type: 'DEBIT' },
+  { value: 'Njangi / Savings Club', label: 'Savings & Deposits', type: 'DEBIT' },
+  { value: 'Agriculture / Business Growth', label: 'Investments', type: 'DEBIT' }
 ];
 
 const getCategoryMeta = (category: string) => {
@@ -86,7 +89,7 @@ const getCategoryMeta = (category: string) => {
   if (cat.includes('SAVINGS')) {
     return { label: 'Savings & Deposits', bgClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', dotClass: 'bg-emerald-400' };
   }
-  if (cat.includes('INVESTMENT')) {
+  if (cat.includes('AGRICULTURE') || cat.includes('GROWTH')) {
     return { label: 'Investments', bgClass: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20', dotClass: 'bg-cyan-400' };
   }
   return { label: category.replace(/_/g, ' '), bgClass: 'bg-slate-800/60 text-slate-400 border-slate-700', dotClass: 'bg-slate-400' };
@@ -133,7 +136,7 @@ export default function Transactions() {
   const [formAccountId, setFormAccountId] = React.useState<number>(0);
   const [formAmount, setFormAmount] = React.useState<string>('');
   const [formDirection, setFormDirection] = React.useState<TransactionDirection>('DEBIT');
-  const [formCategory, setFormCategory] = React.useState<string>('EXPENSE_FOOD');
+  const [formCategory, setFormCategory] = React.useState<string>('Food & Groceries');
   const [formNarrative, setFormNarrative] = React.useState<string>('');
   const [formFee, setFormFee] = React.useState<string>('0');
   const [formTimestamp, setFormTimestamp] = React.useState<string>('');
@@ -251,7 +254,7 @@ export default function Transactions() {
     setFormAccountId(selectedAccountId !== 'ALL' ? Number(selectedAccountId) : (accounts?.[0]?.id ?? 0));
     setFormAmount('');
     setFormDirection('DEBIT');
-    setFormCategory('EXPENSE_FOOD');
+    setFormCategory('Food & Groceries');
     setFormNarrative('');
     setFormFee('0');
     setFormTxIdExternal('');

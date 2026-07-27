@@ -4,7 +4,7 @@ Mbamager Recurring Transaction Repository
 This module defines the data access layer for RecurringTransaction entities.
 """
 
-from sqlalchemy import select
+from sqlalchemy import cast, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.recurring_transaction import RecurringTransaction
@@ -34,5 +34,26 @@ class RecurringTransactionRepository(BaseRepository[RecurringTransaction]):
         Retrieve all active recurring transaction rules in the system.
         """
         stmt = select(RecurringTransaction).where(RecurringTransaction.active == True)
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def search(self, user_id: int, query: str, limit: int = 5) -> list[RecurringTransaction]:
+        """
+        Search a user's recurring transaction rules by narrative, category,
+        or frequency.
+        """
+        pattern = f"%{query}%"
+        stmt = (
+            select(RecurringTransaction)
+            .where(
+                RecurringTransaction.user_id == user_id,
+                or_(
+                    RecurringTransaction.narrative.ilike(pattern),
+                    cast(RecurringTransaction.category, String).ilike(pattern),
+                    cast(RecurringTransaction.frequency, String).ilike(pattern),
+                ),
+            )
+            .limit(limit)
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()

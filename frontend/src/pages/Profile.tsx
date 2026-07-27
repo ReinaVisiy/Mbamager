@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/common/PageHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import { useAuthStore } from '../store/authStore';
+import { useToastStore } from '../store/toastStore';
 import { accountsService } from '../services/accounts';
 import { financeService } from '../services/finance';
 import { notificationsService } from '../services/notifications';
@@ -17,12 +19,78 @@ import {
   Bell, 
   TrendingUp,
   ShieldCheck,
-  Building
+  Building,
+  Pencil,
+  Save,
+  X
 } from 'lucide-react';
 import { Skeleton } from '../components/ui/SkeletonLoader';
 
 export default function Profile() {
-  const { currentUser } = useAuthStore();
+  const { currentUser, updateProfile } = useAuthStore();
+  const toast = useToastStore();
+
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [formError, setFormError] = React.useState<string | null>(null);
+  const [formValues, setFormValues] = React.useState({
+    username: currentUser?.username || '',
+    phone_number: currentUser?.phone_number || '',
+    email: currentUser?.email || '',
+  });
+
+  // Keep the local form in sync whenever the stored profile changes
+  // (e.g. after a save, or if it's loaded/refreshed elsewhere).
+  React.useEffect(() => {
+    if (!isEditing) {
+      setFormValues({
+        username: currentUser?.username || '',
+        phone_number: currentUser?.phone_number || '',
+        email: currentUser?.email || '',
+      });
+    }
+  }, [currentUser, isEditing]);
+
+  const startEditing = () => {
+    setFormError(null);
+    setFormValues({
+      username: currentUser?.username || '',
+      phone_number: currentUser?.phone_number || '',
+      email: currentUser?.email || '',
+    });
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setFormError(null);
+    setIsEditing(false);
+  };
+
+  const handleSaveProfile = async () => {
+    setFormError(null);
+    setIsSaving(true);
+    try {
+      const updates: { username?: string; phone_number?: string; email?: string } = {};
+      if (formValues.username !== (currentUser?.username || '')) updates.username = formValues.username;
+      if (formValues.phone_number !== (currentUser?.phone_number || '')) updates.phone_number = formValues.phone_number;
+      if (formValues.email !== (currentUser?.email || '')) updates.email = formValues.email;
+
+      if (Object.keys(updates).length === 0) {
+        setIsEditing(false);
+        return;
+      }
+
+      await updateProfile(updates);
+      toast.success('Your profile has been updated successfully.');
+      setIsEditing(false);
+    } catch (err: any) {
+      const message = err?.message || 'Failed to update profile.';
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Load accounts for financial summary stats
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
@@ -178,32 +246,104 @@ export default function Profile() {
             </CardContent>
           </Card>
 
-          {/* Account Details Read-Only Specifications */}
+          {/* Account Details - editable */}
           <Card className="border-slate-900 bg-slate-950/40">
             <CardHeader>
-              <div className="flex items-center gap-2.5 mb-1">
-                <User className="w-4.5 h-4.5 text-emerald-400" />
-                <CardTitle className="text-sm font-bold text-slate-200">Personal Configurations</CardTitle>
+              <div className="flex items-center justify-between gap-2.5 mb-1">
+                <div className="flex items-center gap-2.5">
+                  <User className="w-4.5 h-4.5 text-emerald-400" />
+                  <CardTitle className="text-sm font-bold text-slate-200">Personal Configurations</CardTitle>
+                </div>
+                {!isEditing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 cursor-pointer"
+                    onClick={startEditing}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edit
+                  </Button>
+                )}
               </div>
               <CardDescription className="text-[11px]">
-                Your security profile settings. Editing can be requested via backend.
+                {isEditing
+                  ? 'Update your name, phone, or email. Leave a field as-is to keep it unchanged.'
+                  : 'Your security profile settings.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono">Primary Operator Name</div>
-                  <div className="p-3 border border-slate-900 bg-slate-950 rounded-xl text-xs text-slate-300 font-semibold">
-                    {currentUser?.username || 'Guest'}
+              {isEditing ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Primary Operator Name"
+                      value={formValues.username}
+                      onChange={(e) => setFormValues((prev) => ({ ...prev, username: e.target.value }))}
+                      disabled={isSaving}
+                    />
+                    <Input
+                      label="Registered Phone Link"
+                      value={formValues.phone_number}
+                      onChange={(e) => setFormValues((prev) => ({ ...prev, phone_number: e.target.value }))}
+                      placeholder="+2376XXXXXXXX"
+                      disabled={isSaving}
+                    />
+                  </div>
+                  <Input
+                    label="Email Address"
+                    type="email"
+                    value={formValues.email}
+                    onChange={(e) => setFormValues((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="you@example.com"
+                    disabled={isSaving}
+                    error={formError || undefined}
+                  />
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="gap-1.5 cursor-pointer"
+                      onClick={handleSaveProfile}
+                      disabled={isSaving}
+                    >
+                      <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`} />
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 cursor-pointer"
+                      onClick={cancelEditing}
+                      disabled={isSaving}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono">Primary Operator Name</div>
+                    <div className="p-3 border border-slate-900 bg-slate-950 rounded-xl text-xs text-slate-300 font-semibold">
+                      {currentUser?.username || 'Guest'}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono">Registered Phone Link</div>
+                    <div className="p-3 border border-slate-900 bg-slate-950 rounded-xl text-xs text-slate-300 font-mono">
+                      {currentUser?.phone_number || '+237'}
+                    </div>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono">Email Address</div>
+                    <div className="p-3 border border-slate-900 bg-slate-950 rounded-xl text-xs text-slate-300 font-mono">
+                      {currentUser?.email || 'Not set'}
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono">Registered Phone Link</div>
-                  <div className="p-3 border border-slate-900 bg-slate-950 rounded-xl text-xs text-slate-300 font-mono">
-                    {currentUser?.phone_number || '+237'}
-                  </div>
-                </div>
-              </div>
+              )}
 
               <div className="pt-2">
                 <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider font-mono mb-1">Account Privilege Rank</div>

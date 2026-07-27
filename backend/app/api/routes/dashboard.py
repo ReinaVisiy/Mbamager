@@ -6,7 +6,6 @@ All complex calculations are delegated to their respective services.
 """
 
 from datetime import date
-from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.dependencies.auth import (

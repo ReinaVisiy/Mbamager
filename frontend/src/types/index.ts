@@ -9,19 +9,8 @@ export interface User {
   updated_at: string;
 }
 
-export type AccountType = 'MOBILE_MONEY' | 'BANK' | 'CASH' | 'NJANGI' | 'OTHER';
-export type AccountProvider = 
-  | 'MTN' 
-  | 'ORANGE' 
-  | 'SOCIETE_GENERALE' 
-  | 'BICEC' 
-  | 'UBA' 
-  | 'COMMUNITY_NJANGI' 
-  | 'OTHER' 
-  | 'MTN_MOMO' 
-  | 'ORANGE_MONEY' 
-  | 'CASH' 
-  | 'BANK';
+export type AccountType = 'MOBILE_MONEY' | 'BANK' | 'CASH' | 'OTHER';
+export type AccountProvider = 'MTN_MOMO' | 'ORANGE_MONEY' | 'CASH' | 'BANK' | 'OTHER';
 
 export interface Account {
   id: number;
@@ -63,20 +52,28 @@ export interface Budget {
   user_id: number;
   category: string;
   limit_amount: number;
-  current_spent: number;
   start_date: string;
   end_date: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface BudgetProgress {
   budget_id: number;
   category: string;
   limit_amount: number;
-  current_spent: number;
-  percentage_spent: number;
+  spent_amount: number;
   remaining_amount: number;
-  is_over_budget: boolean;
+  percentage_used: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface BudgetCoaching extends BudgetProgress {
+  risk_level: 'SAFE' | 'WARNING' | 'EXCEEDED';
+  message: string;
+  tips: string[];
+  encouragement: string;
 }
 
 export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -150,6 +147,75 @@ export interface DashboardSummary {
   savings_goals: SavingsGoal[];
   upcoming_payments: RecurringTransaction[];
   unread_notifications: Notification[];
+}
+
+export type TontineFrequency = 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY';
+export type TontineGroupStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+export type TontineContributionStatus = 'PAID' | 'LATE';
+
+export interface TontineGroup {
+  id: number;
+  creator_id: number;
+  name: string;
+  description?: string | null;
+  contribution_amount: number;
+  currency: string;
+  frequency: TontineFrequency;
+  status: TontineGroupStatus;
+  current_cycle: number;
+  start_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TontineMember {
+  id: number;
+  group_id: number;
+  user_id?: number | null;
+  display_name: string;
+  payout_position: number;
+  has_received_payout: boolean;
+  joined_at: string;
+}
+
+export interface TontineContribution {
+  id: number;
+  group_id: number;
+  member_id: number;
+  cycle_number: number;
+  amount: number;
+  status: TontineContributionStatus;
+  transaction_id?: number | null;
+  paid_at: string;
+}
+
+export interface TontinePayout {
+  id: number;
+  group_id: number;
+  member_id: number;
+  cycle_number: number;
+  amount: number;
+  transaction_id?: number | null;
+  paid_at: string;
+}
+
+export interface TontineMemberCycleStatus {
+  member_id: number;
+  display_name: string;
+  payout_position: number;
+  has_paid: boolean;
+}
+
+export interface TontineCycleStatus {
+  group_id: number;
+  cycle_number: number;
+  contribution_amount: number;
+  expected_total: number;
+  collected_total: number;
+  members: TontineMemberCycleStatus[];
+  all_members_paid: boolean;
+  recipient_member_id?: number | null;
+  payout_made: boolean;
 }
 
 export interface AuthResponse {

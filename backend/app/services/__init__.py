@@ -18,6 +18,8 @@ from app.services.savings_goal_service import SavingsGoalService
 from app.services.recurring_transaction_service import RecurringTransactionService
 from app.services.notification_service import NotificationService
 from app.services.password_reset_service import PasswordResetService
+from app.services.search_service import SearchService
+from app.services.tontine_service import TontineService
 
 __all__: list[str] = [
     "BaseService",
@@ -34,4 +36,6 @@ __all__: list[str] = [
     "RecurringTransactionService",
     "NotificationService",
     "PasswordResetService",
+    "SearchService",
+    "TontineService",
 ]

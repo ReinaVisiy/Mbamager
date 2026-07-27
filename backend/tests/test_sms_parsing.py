@@ -147,3 +147,65 @@ def test_provider_keyword_without_matching_pattern_still_returns_none():
     result = service.parse_sms(text, sender="MTN", received_at=RECEIVED_AT)
 
     assert result is None
+
+
+def test_mtn_detected_from_realistic_sender_id_without_literal_mtn_keyword():
+    """
+    Regression test: real MTN MoMo Cameroon SMS come from a sender ID of
+    "MobileMoney" (or a numeric shortcode) and frequently never contain the
+    literal word "MTN" anywhere in the sender or body. The original
+    detection (`"MTN" in sender_upper or "MTN" in text_upper`) silently
+    failed on every such message.
+    """
+    service = make_service()
+    text = (
+        "You have transferred 5000 XAF to 677123456. Fee: 50 XAF. "
+        "New balance: 12450 XAF. Financial Transaction Id: 812736451."
+    )
+    result = service.parse_sms(text, sender="MobileMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["provider"] == AccountProvider.MTN_MOMO
+    assert result["amount"] == Decimal("5000")
+
+
+def test_orange_message_not_misclassified_as_mtn_via_mobilemoney_heuristic():
+    """
+    The "MobileMoney" sender heuristic must not fire when the message is
+    actually an Orange transaction (Orange mentioned anywhere wins).
+    """
+    service = make_service()
+    text = "Orange Money: you have sent 3000 XAF fee: 30 ref: OR123 to 655000000"
+    result = service.parse_sms(text, sender="MobileMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["provider"] == AccountProvider.ORANGE_MONEY
+
+
+def test_comma_formatted_amount_parses_correctly_not_silently_truncated():
+    """
+    Regression test for a silent ledger-corruption bug: real SMS format
+    amounts with thousands-separator commas (e.g. "5,000 XAF"). The original
+    regex used a bare \\d+, which can't cross a comma — it would backtrack
+    and match just the "000" fragment as if it were the whole amount,
+    silently creating a transaction with amount=0 instead of failing.
+    """
+    service = make_service()
+    text = (
+        "You have transferred 5,000 XAF to 677123456. Fee: 50 XAF. "
+        "New balance: 12,450 XAF. Financial Transaction Id: 812736451."
+    )
+    result = service.parse_sms(text, sender="MobileMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("5000")  # NOT Decimal("0")
+    assert result["fee"] == Decimal("50")
+
+
+def test_comma_formatted_credit_amount_parses_correctly():
+    service = make_service()
+    text = "Cash Deposit of 1,250,000 XAF fee: 0 ref: DEP999"
+    result = service.parse_sms(text, sender="BANKAPP", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("1250000")

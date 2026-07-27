@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { User } from '../types';
-import { storage, isTokenExpired } from '../utils/format';
+import { authStorage, isTokenExpired } from '../utils/format';
 import { authService } from '../services/auth';
 
 interface AuthState {
@@ -11,12 +11,19 @@ interface AuthState {
   error: string | null;
   
   // Actions
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string, rememberMe?: boolean) => Promise<void>;
   register: (username: string, phone_number: string | null, password: string, email?: string | null) => Promise<void>;
   logout: () => void;
   restoreSession: () => boolean;
   loadCurrentUser: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateProfile: (updates: { username?: string; phone_number?: string; email?: string; password?: string }) => Promise<void>;
+  /**
+   * Move the already-active session between localStorage (persists across
+   * browser restarts) and sessionStorage (cleared on tab/browser close)
+   * without forcing a re-login.
+   */
+  setRememberSession: (remember: boolean) => void;
   isAuthenticated: () => boolean;
   clearError: () => void;
 }
@@ -36,17 +43,21 @@ export const useAuthStore = create<AuthState>((set, get) => {
     isLoading: true,
     error: null,
 
-    login: async (identifier, password) => {
+    login: async (identifier, password, rememberMe = true) => {
       set({ isLoading: true, error: null });
       try {
         const tokenResp = await authService.login(identifier, password);
         const token = tokenResp.access_token;
-        storage.set('mb_auth_token', token);
+        authStorage.setRemembered(rememberMe);
+        authStorage.set('mb_auth_token', token, rememberMe);
+        if (tokenResp.refresh_token) {
+          authStorage.set('mb_refresh_token', tokenResp.refresh_token, rememberMe);
+        }
         set({ token });
         
         // Fetch current user immediately
         const user = await authService.getCurrentUser();
-        storage.set('mb_user_profile', user);
+        authStorage.set('mb_user_profile', user, rememberMe);
         
         set({
           user,
@@ -74,12 +85,18 @@ export const useAuthStore = create<AuthState>((set, get) => {
         }
         const tokenResp = await authService.login(loginIdentifier, password);
         const token = tokenResp.access_token;
-        storage.set('mb_auth_token', token);
+        // No Remember Me control at registration time - default to a
+        // persisted session, matching prior behavior.
+        authStorage.setRemembered(true);
+        authStorage.set('mb_auth_token', token, true);
+        if (tokenResp.refresh_token) {
+          authStorage.set('mb_refresh_token', tokenResp.refresh_token, true);
+        }
         set({ token });
         
         // 3. Fetch user profile
         const user = await authService.getCurrentUser();
-        storage.set('mb_user_profile', user);
+        authStorage.set('mb_user_profile', user, true);
         
         set({
           user,
@@ -95,8 +112,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     logout: () => {
-      storage.remove('mb_auth_token');
-      storage.remove('mb_user_profile');
+      authStorage.remove('mb_auth_token');
+      authStorage.remove('mb_refresh_token');
+      authStorage.remove('mb_user_profile');
       set({
         token: null,
         user: null,
@@ -109,8 +127,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
     restoreSession: () => {
       set({ isLoading: true });
       try {
-        const token = storage.get<string | null>('mb_auth_token', null);
-        const user = storage.get<User | null>('mb_user_profile', null);
+        const token = authStorage.get<string | null>('mb_auth_token', null);
+        const user = authStorage.get<User | null>('mb_user_profile', null);
 
         if (token && !isTokenExpired(token)) {
           set({
@@ -129,8 +147,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
         console.error('Failed to restore auth session', err);
       }
       
-      storage.remove('mb_auth_token');
-      storage.remove('mb_user_profile');
+      authStorage.remove('mb_auth_token');
+      authStorage.remove('mb_refresh_token');
+      authStorage.remove('mb_user_profile');
       set({
         token: null,
         user: null,
@@ -144,15 +163,16 @@ export const useAuthStore = create<AuthState>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const user = await authService.getCurrentUser();
-        storage.set('mb_user_profile', user);
+        authStorage.set('mb_user_profile', user, authStorage.isRemembered());
         set({
           user,
           currentUser: user,
           isLoading: false,
         });
       } catch (err: any) {
-        storage.remove('mb_auth_token');
-        storage.remove('mb_user_profile');
+        authStorage.remove('mb_auth_token');
+        authStorage.remove('mb_refresh_token');
+        authStorage.remove('mb_user_profile');
         set({
           token: null,
           user: null,
@@ -166,7 +186,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     refreshUser: async () => {
       try {
         const user = await authService.getCurrentUser();
-        storage.set('mb_user_profile', user);
+        authStorage.set('mb_user_profile', user, authStorage.isRemembered());
         set({
           user,
           currentUser: user,
@@ -176,8 +196,28 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
+    updateProfile: async (updates) => {
+      const user = await authService.updateProfile(updates);
+      authStorage.set('mb_user_profile', user, authStorage.isRemembered());
+      set({
+        user,
+        currentUser: user,
+      });
+    },
+
+    setRememberSession: (remember) => {
+      const token = get().token || authStorage.get<string | null>('mb_auth_token', null);
+      const refreshToken = authStorage.get<string | null>('mb_refresh_token', null);
+      const user = get().currentUser || authStorage.get<User | null>('mb_user_profile', null);
+
+      authStorage.setRemembered(remember);
+      if (token) authStorage.set('mb_auth_token', token, remember);
+      if (refreshToken) authStorage.set('mb_refresh_token', refreshToken, remember);
+      if (user) authStorage.set('mb_user_profile', user, remember);
+    },
+
     isAuthenticated: () => {
-      const token = get().token || storage.get<string | null>('mb_auth_token', null);
+      const token = get().token || authStorage.get<string | null>('mb_auth_token', null);
       return !!token && !isTokenExpired(token) && !!get().currentUser;
     },
 

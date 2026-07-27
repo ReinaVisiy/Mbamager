@@ -11,8 +11,15 @@ from app.api.dependencies.auth import get_auth_service, get_current_user, get_pa
 from app.core.config import settings
 from app.core.rate_limiter import limit_auth
 from app.models.user import User
-from app.schemas.auth import LoginRequest, TokenResponse, ForgotPasswordRequest, VerifyOtpRequest, ResetPasswordRequest
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.auth import (
+    LoginRequest,
+    TokenResponse,
+    ForgotPasswordRequest,
+    RefreshTokenRequest,
+    VerifyOtpRequest,
+    ResetPasswordRequest,
+)
+from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.services import AuthService, PasswordResetService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -115,13 +122,41 @@ async def login(
     Log in a user by phone number or username and return an access token.
     """
     try:
-        token = await auth_service.login(
-            identifier=login_in.phone_number,
+        access_token, refresh_token = await auth_service.login(
+            identifier=login_in.identifier,
             password=login_in.password,
         )
         return TokenResponse(
-            access_token=token,
+            access_token=access_token,
             token_type="bearer",
+            refresh_token=refresh_token,
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(limit_auth)])
+async def refresh(
+    req: RefreshTokenRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+) -> TokenResponse:
+    """
+    Exchange a valid refresh token for a new access/refresh token pair.
+
+    The refresh token is rotated on every use: the one submitted here is
+    single-use, and the response carries a new refresh token that must
+    replace it client-side.
+    """
+    try:
+        access_token, refresh_token = await auth_service.refresh_access_token(req.refresh_token)
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            refresh_token=refresh_token,
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
     except ValueError as e:
@@ -139,3 +174,25 @@ async def get_me(
     Retrieve the current authenticated user's profile information.
     """
     return current_user
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    updates: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service)
+) -> User:
+    """
+    Update the current authenticated user's profile (name/phone/email/password).
+    Only fields explicitly included in the request body are changed.
+    """
+    try:
+        updated_user = await auth_service.update_profile(
+            current_user,
+            updates.model_dump(exclude_unset=True),
+        )
+        return updated_user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )

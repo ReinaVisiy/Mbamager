@@ -86,6 +86,12 @@ class UserUpdate(BaseSchema):
         description="Updated plaintext password"
     )
 
+    @model_validator(mode="after")
+    def validate_email_format(self) -> Self:
+        if self.email and not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", self.email):
+            raise ValueError("Invalid email format.")
+        return self
+
 
 # Response schemas intentionally omit all security-sensitive fields (passwords, hashes, salts, etc.).
 class UserResponse(UserBase, TimestampSchema):

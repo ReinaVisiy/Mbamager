@@ -7,17 +7,15 @@ to calculate overall dashboard metrics for a user.
 
 import asyncio
 from datetime import date
-from decimal import Decimal
 
-from app.schemas.common import BaseSchema
 from app.schemas.budget import BudgetResponse
-from app.schemas.dashboard import DashboardSummary, BudgetProgressResponse
+from app.schemas.dashboard import DashboardSummary
 from app.schemas.savings_goal import SavingsGoalResponse
 from app.schemas.recurring_transaction import RecurringTransactionResponse
 from app.schemas.notification import NotificationResponse
 from app.services.account_service import AccountService
 from app.services.transaction_service import TransactionService
-from app.services.budget_service import BudgetService, BudgetProgress
+from app.services.budget_service import BudgetService
 from app.services.savings_goal_service import SavingsGoalService
 from app.services.recurring_transaction_service import RecurringTransactionService
 from app.services.notification_service import NotificationService

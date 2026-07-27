@@ -82,7 +82,6 @@ const getAccountTypeLabel = (type: AccountType) => {
     case 'MOBILE_MONEY': return 'Mobile Wallet';
     case 'BANK': return 'Digital Banking';
     case 'CASH': return 'Physical Vault';
-    case 'NJANGI': return 'Njangi Ledger';
     default: return 'Other Asset';
   }
 };
@@ -555,7 +554,6 @@ export default function Accounts() {
                 <option value="MOBILE_MONEY">Mobile Money Wallet</option>
                 <option value="BANK">Digital Banking Ledger</option>
                 <option value="CASH">Physical Cash Container</option>
-                <option value="NJANGI">Njangi Contribution Ledger</option>
                 <option value="OTHER">Other Financial Asset</option>
               </select>
             </div>
@@ -673,7 +671,6 @@ export default function Accounts() {
                 <option value="MOBILE_MONEY">Mobile Money Wallet</option>
                 <option value="BANK">Digital Banking Ledger</option>
                 <option value="CASH">Physical Cash Container</option>
-                <option value="NJANGI">Njangi Contribution Ledger</option>
                 <option value="OTHER">Other Financial Asset</option>
               </select>
             </div>

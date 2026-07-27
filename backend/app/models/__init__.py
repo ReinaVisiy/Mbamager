@@ -16,6 +16,15 @@ from app.models.savings_goal import SavingsGoal, SavingsGoalStatus
 from app.models.recurring_transaction import RecurringTransaction, RecurringFrequency
 from app.models.notification import Notification, NotificationType
 from app.models.password_reset_otp import PasswordResetOTP
+from app.models.tontine import (
+    TontineGroup,
+    TontineGroupStatus,
+    TontineMember,
+    TontineContribution,
+    TontineContributionStatus,
+    TontinePayout,
+    TontineFrequency,
+)
 
 __all__ = [
     "Base",
@@ -36,4 +45,11 @@ __all__ = [
     "Notification",
     "NotificationType",
     "PasswordResetOTP",
+    "TontineGroup",
+    "TontineGroupStatus",
+    "TontineMember",
+    "TontineContribution",
+    "TontineContributionStatus",
+    "TontinePayout",
+    "TontineFrequency",
 ]

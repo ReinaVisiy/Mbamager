@@ -11,7 +11,6 @@ from app.models.budget import Budget
 from app.models.transaction import TransactionCategory
 from app.repositories import BudgetRepository, TransactionRepository
 from app.schemas.budget import BudgetCreate, BudgetUpdate
-from app.schemas.common import BaseSchema
 from app.schemas.dashboard import BudgetProgressResponse
 from app.services.base_service import BaseService
 

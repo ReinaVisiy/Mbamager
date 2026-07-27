@@ -9,7 +9,6 @@ import random
 from datetime import datetime, timedelta, timezone
 import logging
 
-from app.core.config import settings
 from app.core.security import get_password_hash, create_access_token
 from app.models.password_reset_otp import PasswordResetOTP
 from app.repositories.password_reset_otp_repository import PasswordResetOTPRepository

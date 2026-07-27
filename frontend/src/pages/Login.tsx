@@ -12,7 +12,7 @@ import { storage } from '../utils/format';
 
 // Validation schema matching email format or Cameroon standard +2376XXXXXXXX format and backend limits
 const loginSchema = z.object({
-  phone_number: z
+  identifier: z
     .string()
     .min(1, 'Email or Phone Number is required')
     .refine((val) => {
@@ -61,7 +61,7 @@ export default function Login() {
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      phone_number: savedPhone || '',
+      identifier: savedPhone || '',
       password: '',
       remember_me: hasSavedPhone,
     },
@@ -78,11 +78,11 @@ export default function Login() {
     clearError();
     try {
       // 1. Submit login request and load user (handled by Zustand store action)
-      await login(data.phone_number, data.password);
+      await login(data.identifier, data.password, data.remember_me);
 
       // 2. Handle Remember Me storage logic
       if (data.remember_me) {
-        storage.set('mb_remember_phone', data.phone_number);
+        storage.set('mb_remember_phone', data.identifier);
       } else {
         storage.remove('mb_remember_phone');
       }
@@ -139,9 +139,9 @@ export default function Login() {
               label="EMAIL OR PHONE NUMBER"
               type="text"
               placeholder="+237699999999 or user@example.com"
-              error={errors.phone_number?.message}
+              error={errors.identifier?.message}
               disabled={isLoading}
-              {...register('phone_number')}
+              {...register('identifier')}
               helperText="e.g., user@example.com or +2376XXXXXXXX"
             />
 

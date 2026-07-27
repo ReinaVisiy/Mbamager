@@ -9,13 +9,15 @@ prevents duplicates, and triggers corresponding transaction creations.
 import re
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 
 from app.models.sms_message import SMSMessage
-from app.models.transaction import Transaction, TransactionDirection, TransactionCategory
-from app.models.account import AccountProvider, Account
+from app.models.transaction import TransactionDirection, TransactionCategory
+from app.models.account import AccountProvider
 from app.repositories import SMSMessageRepository
 from app.schemas.sms import SMSImportRequest
 from app.schemas.transaction import TransactionCreate
+from app.services.ai_service import AIService
 from app.services.base_service import BaseService
 from app.services.transaction_service import TransactionService
 from app.services.account_service import AccountService
@@ -31,13 +33,31 @@ class SMSService(BaseService[SMSMessage]):
         repository: SMSMessageRepository,
         transaction_service: TransactionService,
         account_service: AccountService,
+        ai_service: Optional[AIService] = None,
     ) -> None:
         """
         Initialize the SMSService with required repositories and sub-services.
+        ai_service powers the Stage 2 (M-PARSE) fallback used when the
+        deterministic regex parser below fails to match a message; it is
+        optional so this service still works (Stage 1 only) without it.
         """
         super().__init__(repository)
         self.transaction_service = transaction_service
         self.account_service = account_service
+        self.ai_service = ai_service
+
+    # Shared numeric pattern: matches "5000", "5,000", or "5,000.50" and is
+    # captured as a single group so callers can strip commas before
+    # Decimal() conversion. A bare \d+ here would silently truncate
+    # comma-formatted amounts (e.g. "5,000" would match just "000" as if it
+    # were the whole amount) instead of failing loudly - that's a silent
+    # ledger-corruption bug, worse than a clean parse failure.
+    _NUM = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+
+    @staticmethod
+    def _to_decimal(raw: str) -> Decimal:
+        """Strip thousands-separator commas before converting to Decimal."""
+        return Decimal(raw.replace(",", ""))
 
     def parse_sms(self, text: str, sender: str, received_at: datetime) -> dict | None:
         """
@@ -49,21 +69,33 @@ class SMSService(BaseService[SMSMessage]):
         clean_text = text.strip()
         sender_upper = sender.upper()
         text_upper = clean_text.upper()
+        sender_compact = sender_upper.replace(" ", "").replace("-", "")
 
-        # Flags for provider classification
-        is_mtn = "MTN" in sender_upper or "MTN" in text_upper
+        # Flags for provider classification.
+        #
+        # Real MTN MoMo Cameroon confirmation SMS come from a sender ID of
+        # "MobileMoney" (or a numeric shortcode) and frequently never contain
+        # the literal substring "MTN" anywhere in the sender or body - so
+        # matching on "MTN" alone missed most real messages. "MobileMoney" as
+        # a sender is only ambiguous if Orange is also mentioned, hence the
+        # is_orange exclusion below.
         is_orange = "ORANGE" in sender_upper or "ORANGE" in text_upper
+        is_mtn = (
+            "MTN" in sender_upper
+            or "MTN" in text_upper
+            or "MOBILEMONEY" in sender_compact
+        ) and not is_orange
 
         # 1. MTN Mobile Money Debit
         if is_mtn and any(kw in text_upper for kw in ("TRANSFER", "SENT", "TRANSFERRED", "PAY", "PAID")):
             m = re.search(
-                r"(?i)(?:transfer|sent|transferred|pay|paid).*?(?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)(?:transfer|sent|transferred|pay|paid).*?(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.DEBIT,
                     "provider": AccountProvider.MTN_MOMO,
@@ -75,13 +107,13 @@ class SMSService(BaseService[SMSMessage]):
         # 2. MTN Mobile Money Credit
         if is_mtn and any(kw in text_upper for kw in ("RECEIVED", "DEPOSIT", "CREDITED")):
             m = re.search(
-                r"(?i)(?:received|deposit|credited).*?(?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)(?:received|deposit|credited).*?(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.CREDIT,
                     "provider": AccountProvider.MTN_MOMO,
@@ -93,13 +125,13 @@ class SMSService(BaseService[SMSMessage]):
         # 3. Orange Money Debit
         if is_orange and any(kw in text_upper for kw in ("TRANSFER", "SENT", "TRANSFERRED", "PAY", "PAID")):
             m = re.search(
-                r"(?i)(?:transfer|sent|transferred|pay|paid).*?(?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)(?:transfer|sent|transferred|pay|paid).*?(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.DEBIT,
                     "provider": AccountProvider.ORANGE_MONEY,
@@ -111,13 +143,13 @@ class SMSService(BaseService[SMSMessage]):
         # 4. Orange Money Credit
         if is_orange and any(kw in text_upper for kw in ("RECEIVED", "DEPOSIT", "CREDITED")):
             m = re.search(
-                r"(?i)(?:received|deposit|credited).*?(?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)(?:received|deposit|credited).*?(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.CREDIT,
                     "provider": AccountProvider.ORANGE_MONEY,
@@ -129,13 +161,13 @@ class SMSService(BaseService[SMSMessage]):
         # 5. Cash Deposit (Credit)
         if "CASH DEPOSIT" in text_upper:
             m = re.search(
-                r"(?i)Cash Deposit of (?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)Cash Deposit of (?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.CREDIT,
                     "provider": AccountProvider.CASH,
@@ -147,13 +179,13 @@ class SMSService(BaseService[SMSMessage]):
         # 6. Cash Withdrawal (Debit)
         if "CASH WITHDRAWAL" in text_upper:
             m = re.search(
-                r"(?i)Cash Withdrawal of (?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)Cash Withdrawal of (?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.DEBIT,
                     "provider": AccountProvider.CASH,
@@ -165,13 +197,13 @@ class SMSService(BaseService[SMSMessage]):
         # 7. Bank Credit (Credit)
         if "BANK CREDIT" in text_upper:
             m = re.search(
-                r"(?i)Bank Credit of (?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)Bank Credit of (?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.CREDIT,
                     "provider": AccountProvider.BANK,
@@ -183,13 +215,13 @@ class SMSService(BaseService[SMSMessage]):
         # 8. Bank Debit (Debit)
         if "BANK DEBIT" in text_upper:
             m = re.search(
-                r"(?i)Bank Debit of (?P<amount>\d+(?:\.\d+)?)\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>\d+(?:\.\d+)?).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
+                rf"(?i)Bank Debit of (?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?fee:\s*(?P<fee>{self._NUM}).*?(?:ref|reference|txid|id):\s*(?P<ref>\w+)",
                 clean_text
             )
             if m:
                 return {
-                    "amount": Decimal(m.group("amount")),
-                    "fee": Decimal(m.group("fee")),
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
                     "ref": m.group("ref"),
                     "direction": TransactionDirection.DEBIT,
                     "provider": AccountProvider.BANK,
@@ -203,8 +235,51 @@ class SMSService(BaseService[SMSMessage]):
     def extract_transaction(self, sms: SMSMessage) -> dict | None:
         """
         Extract transaction data from a stored SMSMessage object.
+
+        Tries the deterministic regex parser first (Stage 1 - fast, free,
+        fully local). Only if that fails to match, and an AIService is
+        configured, falls back to Gemini-based extraction (Stage 2 /
+        M-PARSE) for messages with unusual phrasing, a new operator
+        template, or French wording that Stage 1 doesn't recognize.
         """
-        return self.parse_sms(sms.message_body, sms.sender, sms.received_at)
+        parsed = self.parse_sms(sms.message_body, sms.sender, sms.received_at)
+        if parsed:
+            return parsed
+
+        if not self.ai_service:
+            return None
+
+        ai_result = self.ai_service.extract_sms_transaction(sms.message_body, sms.sender)
+        if not ai_result:
+            return None
+
+        try:
+            provider = AccountProvider(ai_result["provider"])
+        except ValueError:
+            provider = AccountProvider.OTHER
+
+        direction = (
+            TransactionDirection.CREDIT
+            if ai_result["direction"] == "CREDIT"
+            else TransactionDirection.DEBIT
+        )
+        category = (
+            TransactionCategory.INCOME_REMITTANCE
+            if direction == TransactionDirection.CREDIT
+            else TransactionCategory.EXPENSE_UTILITIES
+        )
+
+        return {
+            "amount": ai_result["amount"],
+            "fee": ai_result["fee"],
+            "ref": ai_result["ref"],
+            "direction": direction,
+            "provider": provider,
+            "category": category,
+            "narrative": f"AI-extracted transaction (M-PARSE) - Ref: {ai_result['ref']}",
+            "date": sms.received_at,
+            "ai_extracted": True,
+        }
 
     async def check_duplicate(
         self,

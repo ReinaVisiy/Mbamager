@@ -42,9 +42,12 @@ class BudgetBase(BaseSchema):
 
 class BudgetCreate(BudgetBase):
     """
-    Payload required to register a category budget limit.
+    Payload required to register a category budget limit. user_id is
+    intentionally not part of this payload — it's derived from the
+    authenticated user in the route, matching SavingsGoalCreate and
+    RecurringTransactionCreate.
     """
-    user_id: int = Field(..., description="Unique user identifier associated with this budget")
+    pass
 
 class BudgetUpdate(BaseSchema):
     """

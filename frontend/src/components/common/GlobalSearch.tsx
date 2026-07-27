@@ -2,171 +2,59 @@ import * as React from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Search, 
-  X, 
-  CreditCard, 
-  ArrowLeftRight, 
-  Target, 
-  Clock, 
+import {
+  Search,
+  X,
+  CreditCard,
+  ArrowLeftRight,
+  Target,
+  Clock,
   Bell,
+  Users,
   CornerDownLeft,
   Loader2
 } from 'lucide-react';
-import { accountsService } from '../../services/accounts';
-import { transactionsService } from '../../services/transactions';
-import { financeService } from '../../services/finance';
-import { notificationsService } from '../../services/notifications';
-import { formatXAF } from '../../utils/format';
+import { searchService, SearchResultItem, SearchResultType } from '../../services/search';
 
 interface GlobalSearchProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface SearchResult {
-  id: string | number;
-  type: 'account' | 'transaction' | 'goal' | 'recurring' | 'notification';
-  title: string;
-  subtitle: string;
-  meta?: string;
-  url: string;
-}
+const DEBOUNCE_MS = 250;
 
 export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
   const navigate = useNavigate();
   const [query, setQuery] = React.useState('');
+  const [debouncedQuery, setDebouncedQuery] = React.useState('');
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  // Fetch all necessary data for searching
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ['accounts', 'search-all'],
-    queryFn: () => accountsService.getAll(),
-    enabled: isOpen,
+  // Debounce the query before it ever reaches the network. This keeps
+  // search fast and cheap: the server does one bounded, indexed query per
+  // entity type instead of the client downloading entire collections and
+  // filtering them locally.
+  React.useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setDebouncedQuery('');
+      return;
+    }
+    const timeout = setTimeout(() => setDebouncedQuery(trimmed), DEBOUNCE_MS);
+    return () => clearTimeout(timeout);
+  }, [query]);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['global-search', debouncedQuery],
+    queryFn: () => searchService.search(debouncedQuery),
+    enabled: isOpen && debouncedQuery.length > 0,
+    placeholderData: (previous) => previous,
   });
 
-  const { data: transactions = [], isLoading: txsLoading } = useQuery({
-    queryKey: ['transactions', 'search-all'],
-    queryFn: () => transactionsService.getAll(),
-    enabled: isOpen,
-  });
-
-  const { data: goals = [], isLoading: goalsLoading } = useQuery({
-    queryKey: ['goals', 'search-all'],
-    queryFn: () => financeService.getGoals(),
-    enabled: isOpen,
-  });
-
-  const { data: recurring = [], isLoading: recurringLoading } = useQuery({
-    queryKey: ['recurring', 'search-all'],
-    queryFn: () => financeService.getRecurring(),
-    enabled: isOpen,
-  });
-
-  const { data: notifications = [], isLoading: notificationsLoading } = useQuery({
-    queryKey: ['notifications', 'search-all'],
-    queryFn: () => notificationsService.getNotifications(),
-    enabled: isOpen,
-  });
-
-  const isLoading = accountsLoading || txsLoading || goalsLoading || recurringLoading || notificationsLoading;
-
-  // Perform client-side search across collections
-  const results = React.useMemo<SearchResult[]>(() => {
-    if (!query.trim()) return [];
-
-    const searchStr = query.toLowerCase();
-    const list: SearchResult[] = [];
-
-    // 1. Search Accounts
-    accounts.forEach((acc) => {
-      if (
-        acc.name.toLowerCase().includes(searchStr) ||
-        (acc.type && acc.type.toLowerCase().includes(searchStr)) ||
-        acc.provider.toLowerCase().includes(searchStr)
-      ) {
-        list.push({
-          id: `acc-${acc.id}`,
-          type: 'account',
-          title: acc.name,
-          subtitle: `${acc.provider} • ${acc.type || 'Account'}`,
-          meta: formatXAF(acc.balance),
-          url: '/accounts',
-        });
-      }
-    });
-
-    // 2. Search Transactions
-    transactions.forEach((tx) => {
-      if (
-        tx.category.toLowerCase().includes(searchStr) ||
-        (tx.narrative && tx.narrative.toLowerCase().includes(searchStr)) ||
-        tx.amount.toString().includes(searchStr)
-      ) {
-        list.push({
-          id: `tx-${tx.id}`,
-          type: 'transaction',
-          title: tx.narrative || 'Transaction',
-          subtitle: `${tx.category} • ${tx.direction}`,
-          meta: `${tx.direction === 'CREDIT' ? '+' : '-'}${formatXAF(tx.amount)}`,
-          url: '/transactions',
-        });
-      }
-    });
-
-    // 3. Search Goals
-    goals.forEach((goal) => {
-      if (goal.name.toLowerCase().includes(searchStr) || goal.status?.toLowerCase().includes(searchStr)) {
-        list.push({
-          id: `goal-${goal.id}`,
-          type: 'goal',
-          title: goal.name,
-          subtitle: `Savings Goal • Target Date: ${new Date(goal.target_date).toLocaleDateString()}`,
-          meta: `${formatXAF(goal.current_amount || 0)} / ${formatXAF(goal.target_amount)}`,
-          url: '/goals',
-        });
-      }
-    });
-
-    // 4. Search Recurring
-    recurring.forEach((rec) => {
-      if (
-        rec.category.toLowerCase().includes(searchStr) ||
-        (rec.narrative && rec.narrative.toLowerCase().includes(searchStr)) ||
-        rec.frequency.toLowerCase().includes(searchStr)
-      ) {
-        list.push({
-          id: `rec-${rec.id}`,
-          type: 'recurring',
-          title: rec.narrative || `Recurring ${rec.category}`,
-          subtitle: `${rec.frequency} • ${rec.category}`,
-          meta: formatXAF(rec.amount),
-          url: '/recurring',
-        });
-      }
-    });
-
-    // 5. Search Notifications
-    notifications.forEach((notif) => {
-      if (
-        notif.title.toLowerCase().includes(searchStr) ||
-        notif.message.toLowerCase().includes(searchStr) ||
-        notif.type.toLowerCase().includes(searchStr)
-      ) {
-        list.push({
-          id: `notif-${notif.id}`,
-          type: 'notification',
-          title: notif.title,
-          subtitle: notif.message,
-          meta: notif.type.toUpperCase(),
-          url: '/notifications',
-        });
-      }
-    });
-
-    return list.slice(0, 10); // Limit to top 10 matches
-  }, [query, accounts, transactions, goals, recurring, notifications]);
+  const results = data?.results ?? [];
+  // Show the spinner while the user is actively typing (debounce window)
+  // as well as while the request itself is in flight.
+  const isLoading = isFetching || (query.trim().length > 0 && query.trim() !== debouncedQuery);
 
   // Focus input when open
   React.useEffect(() => {
@@ -175,9 +63,15 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
         inputRef.current?.focus();
       }, 50);
       setQuery('');
+      setDebouncedQuery('');
       setSelectedIndex(0);
     }
   }, [isOpen]);
+
+  // Reset selection whenever the visible result set changes
+  React.useEffect(() => {
+    setSelectedIndex(0);
+  }, [results.length, debouncedQuery]);
 
   // Handle Keyboard Navigation
   React.useEffect(() => {
@@ -205,18 +99,19 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, results, selectedIndex]);
 
-  const handleSelect = (item: SearchResult) => {
+  const handleSelect = (item: SearchResultItem) => {
     navigate(item.url);
     onClose();
   };
 
-  const getIcon = (type: SearchResult['type']) => {
+  const getIcon = (type: SearchResultType) => {
     switch (type) {
       case 'account': return <CreditCard className="w-4 h-4 text-sky-400" />;
       case 'transaction': return <ArrowLeftRight className="w-4 h-4 text-emerald-400" />;
       case 'goal': return <Target className="w-4 h-4 text-fuchsia-400" />;
       case 'recurring': return <Clock className="w-4 h-4 text-amber-400" />;
       case 'notification': return <Bell className="w-4 h-4 text-rose-400" />;
+      case 'tontine': return <Users className="w-4 h-4 text-violet-400" />;
     }
   };
 
@@ -255,7 +150,6 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
-                  setSelectedIndex(0);
                 }}
                 className="flex-1 bg-transparent text-sm text-slate-100 placeholder-slate-500 outline-none w-full"
               />
@@ -280,7 +174,11 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                 </div>
               ) : results.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-xs">
-                  No matching items found for &ldquo;<span className="text-slate-300 font-semibold">{query}</span>&rdquo;
+                  {isLoading ? (
+                    'Searching...'
+                  ) : (
+                    <>No matching items found for &ldquo;<span className="text-slate-300 font-semibold">{query}</span>&rdquo;</>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -308,7 +206,9 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 pl-3">
-                          <span className="text-xs font-mono text-slate-400 font-semibold">{item.meta}</span>
+                          {item.meta && (
+                            <span className="text-xs font-mono text-slate-400 font-semibold">{item.meta}</span>
+                          )}
                           {isSelected && (
                             <CornerDownLeft className="w-3.5 h-3.5 text-emerald-400" />
                           )}

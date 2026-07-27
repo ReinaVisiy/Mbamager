@@ -1,4 +1,3 @@
-import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
@@ -52,7 +51,7 @@ def test_auth_and_registration_flow(client: TestClient):
 
     # 2. Login with the credentials
     login_payload = {
-        "phone_number": "+237699999999",
+        "identifier": "+237699999999",
         "password": "SecurePassword123!"
     }
     response = client.post("/api/v1/auth/login", json=login_payload)
@@ -69,6 +68,109 @@ def test_auth_and_registration_flow(client: TestClient):
     profile_data = response.json()
     assert profile_data["username"] == "testuser"
     assert profile_data["phone_number"] == "+237699999999"
+
+def test_refresh_token_flow(client: TestClient):
+    """
+    Test that a refresh token can be exchanged for a new access/refresh
+    pair, that the old refresh token cannot be reused after rotation, and
+    that a refresh token cannot be used as an access token.
+    """
+    register_payload = {
+        "username": "refreshuser",
+        "phone_number": "+237688888888",
+        "password": "SecurePassword123!"
+    }
+    response = client.post("/api/v1/auth/register", json=register_payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    login_payload = {
+        "identifier": "+237688888888",
+        "password": "SecurePassword123!"
+    }
+    response = client.post("/api/v1/auth/login", json=login_payload)
+    assert response.status_code == status.HTTP_200_OK
+    token_data = response.json()
+    assert "refresh_token" in token_data and token_data["refresh_token"]
+    old_refresh_token = token_data["refresh_token"]
+
+    # 1. A refresh token must not work as an access token
+    bad_headers = {"Authorization": f"Bearer {old_refresh_token}"}
+    response = client.get("/api/v1/auth/me", headers=bad_headers)
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # 2. Exchange the refresh token for a new pair
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh_token})
+    assert response.status_code == status.HTTP_200_OK
+    new_token_data = response.json()
+    assert new_token_data["token_type"] == "bearer"
+    new_access_token = new_token_data["access_token"]
+    new_refresh_token = new_token_data["refresh_token"]
+    assert new_refresh_token and new_refresh_token != old_refresh_token
+
+    # 3. The new access token works against a protected endpoint
+    headers = {"Authorization": f"Bearer {new_access_token}"}
+    response = client.get("/api/v1/auth/me", headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["username"] == "refreshuser"
+
+    # 4. A garbage/invalid refresh token is rejected
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": "not-a-real-token"})
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+def test_update_profile(client: TestClient):
+    """
+    Test that PATCH /auth/me updates only the submitted fields, rejects
+    duplicate identifiers already used by another user, and rejects
+    unauthenticated requests.
+    """
+    register_payload = {
+        "username": "profileuser",
+        "phone_number": "+237677777777",
+        "password": "SecurePassword123!"
+    }
+    response = client.post("/api/v1/auth/register", json=register_payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    other_payload = {
+        "username": "otheruser",
+        "phone_number": "+237666666666",
+        "password": "SecurePassword123!"
+    }
+    response = client.post("/api/v1/auth/register", json=other_payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    login_payload = {"identifier": "+237677777777", "password": "SecurePassword123!"}
+    response = client.post("/api/v1/auth/login", json=login_payload)
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    # 1. Unauthenticated update is rejected
+    response = client.patch("/api/v1/auth/me", json={"username": "nope"})
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # 2. Partial update: only username changes, phone stays the same
+    response = client.patch("/api/v1/auth/me", json={"username": "newname"}, headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["username"] == "newname"
+    assert data["phone_number"] == "+237677777777"
+
+    # 3. Email can be added
+    response = client.patch("/api/v1/auth/me", json={"email": "profileuser@example.com"}, headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["email"] == "profileuser@example.com"
+
+    # 4. Taking a phone number already used by another user is rejected
+    response = client.patch("/api/v1/auth/me", json={"phone_number": "+237666666666"}, headers=headers)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # 5. New password works on next login
+    response = client.patch("/api/v1/auth/me", json={"password": "NewSecurePassword456!"}, headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "+237677777777", "password": "NewSecurePassword456!"},
+    )
+    assert response.status_code == status.HTTP_200_OK
 
 def test_unauthorized_endpoints(client: TestClient):
     """
@@ -94,7 +196,7 @@ def test_account_creation_and_retrieval(client: TestClient):
     client.post("/api/v1/auth/register", json=register_payload)
     
     login_payload = {
-        "phone_number": "+237688888888",
+        "identifier": "+237688888888",
         "password": "SecurePassword123!"
     }
     response = client.post("/api/v1/auth/login", json=login_payload)

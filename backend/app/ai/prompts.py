@@ -199,3 +199,30 @@ Respond with ONLY a JSON object in this exact shape, no other text:
   "recommended_action": "<one short, practical sentence>"
 }}
 """
+
+SMS_PARSER_PROMPT: str = """You are M-PARSE, the transaction-extraction engine for Mbamager, an \
+app used by Cameroonian Mobile Money (MTN MoMo, Orange Money) users. Mbamager's fast \
+deterministic regex parser already tried and failed to parse the SMS below (unusual \
+phrasing, a new operator template, French wording, etc.) - you are the fallback.
+
+Extract the transaction details from the raw SMS text below. Only extract what is \
+actually present in the text - never invent an amount, fee, or reference that isn't \
+there. If the message is not actually a Mobile Money / bank / cash transaction \
+confirmation (e.g. it's a promotion, balance-check reply, or unrelated message), say so \
+by setting "is_transaction" to false.
+
+Sender identifier: {sender}
+Raw SMS text:
+{text}
+
+Respond with ONLY a JSON object in this exact shape, no other text:
+{{
+  "is_transaction": <true or false>,
+  "amount": <number, or null if not present>,
+  "fee": <number, or null if not present - use 0 if the message implies no fee>,
+  "direction": "<CREDIT or DEBIT, or null>",
+  "provider": "<MTN_MOMO, ORANGE_MONEY, CASH, BANK, or OTHER>",
+  "reference": "<transaction/reference id as text, or null if not present>",
+  "confidence": <float between 0 and 1>
+}}
+"""

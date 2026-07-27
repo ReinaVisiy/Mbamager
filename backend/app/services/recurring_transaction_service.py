@@ -194,7 +194,7 @@ class RecurringTransactionService(BaseService[RecurringTransaction]):
                         direction_str = "credit" if rec.direction == TransactionDirection.CREDIT else "debit"
                         await self.notification_service.create_notification(
                             user_id=rec.user_id,
-                            title=f"Recurring Payment Executed",
+                            title="Recurring Payment Executed",
                             message=(
                                 f"A recurring {direction_str} payment of {rec.amount} "
                                 f"for '{tx.narrative}' was automatically posted to your account."

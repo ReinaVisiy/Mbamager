@@ -21,6 +21,7 @@ from app.ai.prompts import (
     SCAM_ANALYSIS_PROMPT,
     BUDGET_COACH_PROMPT,
     FINANCIAL_ASSISTANT_PROMPT,
+    SMS_PARSER_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -580,3 +581,55 @@ class AIService:
             "\"Where did I spend the most?\", \"How much did I save?\", or \"What should I reduce?\""
         )
         return {"reply": reply, "suggested_follow_ups": follow_ups, "fallback": True}
+
+    def extract_sms_transaction(self, text: str, sender: str) -> Optional[Dict[str, Any]]:
+        """
+        Stage 2 (M-PARSE) fallback for SMS transaction extraction. Only called
+        when the deterministic regex parser in SMSService.parse_sms() already
+        failed to match a message (unusual phrasing, a new operator template,
+        French wording, etc.).
+
+        Unlike the other AI methods, there is deliberately NO rule-based
+        fallback here if Gemini is unavailable: guessing at a transaction
+        amount/direction from unstructured text without any deterministic
+        signal to fall back on would risk fabricating a ledger entry, which
+        directly violates Engineering Law 1 (AI never owns the ledger). If
+        Gemini can't help, this returns None and the message is left
+        unprocessed for manual review - a clean failure, not a guess.
+        """
+        prompt = SMS_PARSER_PROMPT.format(sender=sender or "Unknown", text=text)
+
+        result = self._call_gemini_json(prompt)
+        if not result or not result.get("is_transaction"):
+            return None
+
+        required = ("amount", "direction", "reference")
+        if any(result.get(field) in (None, "") for field in required):
+            return None
+
+        try:
+            amount = Decimal(str(result["amount"]))
+            fee = Decimal(str(result.get("fee") or 0))
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+
+        if amount <= 0:
+            return None
+
+        direction = str(result["direction"]).upper()
+        if direction not in ("CREDIT", "DEBIT"):
+            return None
+
+        provider = str(result.get("provider") or "OTHER").upper()
+        if provider not in ("MTN_MOMO", "ORANGE_MONEY", "CASH", "BANK", "OTHER"):
+            provider = "OTHER"
+
+        return {
+            "amount": amount,
+            "fee": fee,
+            "ref": str(result["reference"]),
+            "direction": direction,
+            "provider": provider,
+            "confidence": float(result.get("confidence", 0.5)),
+            "ai_extracted": True,
+        }

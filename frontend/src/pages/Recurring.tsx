@@ -53,7 +53,7 @@ export default function Recurring() {
   // Form field states
   const [formAccountId, setFormAccountId] = React.useState<number>(0);
   const [formAmount, setFormAmount] = React.useState<number>(0);
-  const [formCategory, setFormCategory] = React.useState('Bills');
+  const [formCategory, setFormCategory] = React.useState('Food & Groceries');
   const [formDirection, setFormDirection] = React.useState<TransactionDirection>('DEBIT');
   const [formFrequency, setFormFrequency] = React.useState<RecurringFrequency>('MONTHLY');
   const [formStartDate, setFormStartDate] = React.useState('');
@@ -141,7 +141,7 @@ export default function Recurring() {
       setFormAccountId(0);
     }
     setFormAmount(0);
-    setFormCategory('Bills');
+    setFormCategory('Food & Groceries');
     setFormDirection('DEBIT');
     setFormFrequency('MONTHLY');
     setFormStartDate(new Date().toISOString().split('T')[0]);
@@ -617,14 +617,17 @@ export default function Recurring() {
                 onChange={(e) => setFormCategory(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl h-10 px-3 text-xs outline-none focus:border-slate-700"
               >
-                <option value="Bills">Bills & Subscriptions</option>
-                <option value="Rent">Rent & Housing</option>
-                <option value="Education">Education & School Fees</option>
-                <option value="Njangi">Njangi Contribution</option>
-                <option value="Business">Business Logistics</option>
-                <option value="Salary">Salary / Income</option>
-                <option value="Savings">Savings Cache</option>
-                <option value="Other">Other Miscellaneous</option>
+                <option value="Salary / Wages">Salary / Income</option>
+                <option value="Business / Trade">Business Logistics</option>
+                <option value="Remittance / Support">Remittances</option>
+                <option value="Food & Groceries">Food & Groceries</option>
+                <option value="Electricity / Water / Internet">Bills & Subscriptions</option>
+                <option value="Medical & Health">Health & Medical</option>
+                <option value="School Fees / Education">Education & School Fees</option>
+                <option value="Taxi / Moto / Transport">Transportation</option>
+                <option value="Operator Cashout Fees">Fees & Commissions</option>
+                <option value="Njangi / Savings Club">Njangi Contribution</option>
+                <option value="Agriculture / Business Growth">Investments</option>
               </select>
             </div>
           </div>
@@ -744,14 +747,17 @@ export default function Recurring() {
                 onChange={(e) => setFormCategory(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl h-10 px-3 text-xs outline-none focus:border-slate-700"
               >
-                <option value="Bills">Bills & Subscriptions</option>
-                <option value="Rent">Rent & Housing</option>
-                <option value="Education">Education & School Fees</option>
-                <option value="Njangi">Njangi Contribution</option>
-                <option value="Business">Business Logistics</option>
-                <option value="Salary">Salary / Income</option>
-                <option value="Savings">Savings Cache</option>
-                <option value="Other">Other Miscellaneous</option>
+                <option value="Salary / Wages">Salary / Income</option>
+                <option value="Business / Trade">Business Logistics</option>
+                <option value="Remittance / Support">Remittances</option>
+                <option value="Food & Groceries">Food & Groceries</option>
+                <option value="Electricity / Water / Internet">Bills & Subscriptions</option>
+                <option value="Medical & Health">Health & Medical</option>
+                <option value="School Fees / Education">Education & School Fees</option>
+                <option value="Taxi / Moto / Transport">Transportation</option>
+                <option value="Operator Cashout Fees">Fees & Commissions</option>
+                <option value="Njangi / Savings Club">Njangi Contribution</option>
+                <option value="Agriculture / Business Growth">Investments</option>
               </select>
             </div>
           </div>

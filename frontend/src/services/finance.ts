@@ -1,7 +1,7 @@
 import { api } from '../lib/api';
 import { 
   Budget, 
-  BudgetProgress, 
+  BudgetCoaching,
   SavingsGoal, 
   RecurringTransaction,
   RecurringFrequency,
@@ -14,6 +14,14 @@ export interface CreateBudgetPayload {
   start_date: string;
   end_date: string;
 }
+
+export interface UpdateBudgetPayload {
+  category?: string;
+  limit_amount?: number;
+  start_date?: string;
+  end_date?: string;
+}
+
 
 export interface CreateGoalPayload {
   name: string;
@@ -77,8 +85,23 @@ export const financeService = {
     return response.data;
   },
 
-  async getBudgetProgress(budgetId: number): Promise<BudgetProgress> {
-    const response = await api.get<BudgetProgress>(`/budgets/${budgetId}/progress`);
+  async updateBudget(budgetId: number, payload: UpdateBudgetPayload): Promise<Budget> {
+    const response = await api.put<Budget>(`/budgets/${budgetId}`, payload);
+    return response.data;
+  },
+
+  async deleteBudget(budgetId: number): Promise<void> {
+    await api.delete(`/budgets/${budgetId}`);
+  },
+
+  /**
+   * Fetch COMPASS coaching for a single budget: deterministic progress
+   * metrics (spent/remaining/percentage_used/risk_level) plus an
+   * AI-authored message, tips, and encouragement. Rate-limited on the
+   * backend (limit_ai) since it calls the Gemini AI layer.
+   */
+  async getBudgetCoaching(budgetId: number): Promise<BudgetCoaching> {
+    const response = await api.get<BudgetCoaching>(`/budgets/${budgetId}/coach`);
     return response.data;
   },
 

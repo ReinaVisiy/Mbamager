@@ -14,7 +14,7 @@ export const authService = {
    * Matches FastAPI backend spec: returns TokenResponse.
    */
   async login(identifier: string, password: string): Promise<TokenResponse> {
-    const payload = { phone_number: identifier, password };
+    const payload = { identifier, password };
     const response = await api.post<TokenResponse>('/auth/login', payload);
     return response.data;
   },
@@ -58,11 +58,33 @@ export const authService = {
   },
 
   /**
+   * Exchange a refresh token for a new access/refresh token pair.
+   */
+  async refreshToken(refreshToken: string): Promise<TokenResponse> {
+    const response = await api.post<TokenResponse>('/auth/refresh', { refresh_token: refreshToken });
+    return response.data;
+  },
+
+  /**
    * Fetch current authenticated user profile.
    * Matches FastAPI backend spec: returns User.
    */
   async getCurrentUser(): Promise<User> {
     const response = await api.get<User>('/auth/me');
+    return response.data;
+  },
+
+  /**
+   * Update the current authenticated user's profile. Only send the fields
+   * that should change - the backend applies a partial update.
+   */
+  async updateProfile(updates: {
+    username?: string;
+    phone_number?: string;
+    email?: string;
+    password?: string;
+  }): Promise<User> {
+    const response = await api.patch<User>('/auth/me', updates);
     return response.data;
   },
 

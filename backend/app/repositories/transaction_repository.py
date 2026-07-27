@@ -6,9 +6,10 @@ This module defines the dedicated data access layer for Transaction entities.
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import cast, or_, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
 from app.models.transaction import Transaction, TransactionCategory, TransactionDirection
 from app.repositories.base import BaseRepository
 
@@ -65,6 +66,30 @@ class TransactionRepository(BaseRepository[Transaction]):
             Transaction.account_id == account_id,
             Transaction.timestamp >= start_date,
             Transaction.timestamp <= end_date,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def search(self, user_id: int, query: str, limit: int = 5) -> list[Transaction]:
+        """
+        Search a user's transactions by narrative or category, newest
+        first. Joins through Account to scope by user (transactions don't
+        carry user_id directly) and filters/limits at the SQL level so it
+        stays fast regardless of transaction volume.
+        """
+        pattern = f"%{query}%"
+        stmt = (
+            select(Transaction)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(
+                Account.user_id == user_id,
+                or_(
+                    Transaction.narrative.ilike(pattern),
+                    cast(Transaction.category, String).ilike(pattern),
+                ),
+            )
+            .order_by(Transaction.timestamp.desc())
+            .limit(limit)
         )
         result = await self.db.execute(stmt)
         return result.scalars().all()

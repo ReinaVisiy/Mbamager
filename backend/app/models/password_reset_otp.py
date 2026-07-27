@@ -5,7 +5,6 @@ This module defines the SQLAlchemy 2.0 PasswordResetOTP model.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column

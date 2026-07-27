@@ -4,7 +4,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../co
 import { Button } from '../components/ui/Button';
 import { useThemeStore } from '../store/themeStore';
 import { useAppStore } from '../store/appStore';
+import { useAuthStore } from '../store/authStore';
 import { useToastStore } from '../store/toastStore';
+import { authStorage } from '../utils/format';
 import { 
   Settings as SettingsIcon, 
   Save, 
@@ -20,6 +22,7 @@ import {
 export default function Settings() {
   const { theme, setTheme } = useThemeStore();
   const { settings, updateSettings } = useAppStore();
+  const { setRememberSession } = useAuthStore();
   const toast = useToastStore();
 
   // Local state for notification preferences (not in core settings, we'll store them in a separate local state or localStorage)
@@ -38,9 +41,11 @@ export default function Settings() {
     return localStorage.getItem('mb_settings_refresh_interval') || 'none';
   });
 
-  // Local state for session preference
+  // Local state for session preference - initialized from the actual
+  // storage backing (localStorage vs sessionStorage) the active session
+  // is using, so this toggle can never drift from reality.
   const [persistSession, setPersistSession] = React.useState(() => {
-    return localStorage.getItem('mb_settings_persist_session') !== 'false';
+    return authStorage.isRemembered();
   });
 
   // Local state for currency preference
@@ -63,7 +68,10 @@ export default function Settings() {
       localStorage.setItem('mb_settings_notif_recurring', String(notifRecurring));
       localStorage.setItem('mb_settings_notif_sms', String(notifSms));
       localStorage.setItem('mb_settings_refresh_interval', refreshInterval);
-      localStorage.setItem('mb_settings_persist_session', String(persistSession));
+
+      // 3. Move the live session token/profile between localStorage and
+      // sessionStorage to match the preference immediately.
+      setRememberSession(persistSession);
 
       setIsSaving(false);
       toast.success('Your preferences have been saved successfully.');
