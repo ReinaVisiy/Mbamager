@@ -97,7 +97,7 @@ class SMSService(BaseService[SMSMessage]):
             m = re.search(
                 rf"(?i)cash(?P<txdir>in|out)\s+success.*?"
                 rf"transaction\s+amount:\s*(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?"
-                rf"transaction\s+id:\s*(?P<ref>[\w.]+).*?"
+                rf"transaction\s+id:\s*(?P<ref>\w+(?:\.\w+)*).*?"
                 rf"charges?:\s*(?P<charges>{self._NUM})\s*(?:XAF|FCFA)"
                 rf"(?:.*?commission:\s*(?P<commission>{self._NUM})\s*(?:XAF|FCFA))?",
                 clean_text
@@ -267,6 +267,100 @@ class SMSService(BaseService[SMSMessage]):
                     "provider": AccountProvider.BANK,
                     "category": TransactionCategory.EXPENSE_UTILITIES,
                     "narrative": f"Bank Debit - Ref: {m.group('ref')}",
+                    "date": received_at,
+                }
+
+        # 9. P2P "Successful transfer" template (real-world Orange/MTN Cameroon
+        # format, distinct from both the inline and CashIn/Out templates
+        # above). Example: "Successful transfer from X to Y. Transaction ID:
+        # PP260715.1129.A71039, Transaction amount: 4054 FCFA, Charges: 12.1
+        # FCFA, Commission: 0 FCFA, Net debit amount: 4066.1 FCFA, ..."
+        # Charges here can be a decimal (12.1 FCFA), already handled by _NUM.
+        # Direction is read from "net debit"/"net credit" rather than assumed,
+        # since a transfer confirmation could in principle be sent to either
+        # party.
+        if is_orange or is_mtn:
+            m = re.search(
+                rf"(?i)successful\s+transfer.*?"
+                rf"transaction\s+id:\s*(?P<ref>\w+(?:\.\w+)*).*?"
+                rf"transaction\s+amount:\s*(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?"
+                rf"charges:\s*(?P<charges>{self._NUM})\s*(?:XAF|FCFA)"
+                rf"(?:.*?commission:\s*(?P<commission>{self._NUM})\s*(?:XAF|FCFA))?",
+                clean_text
+            )
+            if m:
+                direction = (
+                    TransactionDirection.CREDIT if "NET CREDIT" in text_upper
+                    else TransactionDirection.DEBIT
+                )
+                provider = AccountProvider.ORANGE_MONEY if is_orange else AccountProvider.MTN_MOMO
+                provider_label = "Orange Money" if is_orange else "MTN MoMo"
+                fee = self._to_decimal(m.group("charges"))
+                if m.group("commission"):
+                    fee += self._to_decimal(m.group("commission"))
+                return {
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": fee,
+                    "ref": m.group("ref"),
+                    "direction": direction,
+                    "provider": provider,
+                    "category": (
+                        TransactionCategory.INCOME_REMITTANCE if direction == TransactionDirection.CREDIT
+                        else TransactionCategory.EXPENSE_UTILITIES
+                    ),
+                    "narrative": f"{provider_label} Transfer - Ref: {m.group('ref')}",
+                    "date": received_at,
+                }
+
+        # 10. Alternate "CashOut success" phrasing with different field labels
+        # than pattern 1b above (Amount:/Fees:/Transaction ID: instead of
+        # transaction amount:/charges:/transaction id:, and no space before
+        # "FCFA" in some real messages, e.g. "13160FCFA" - already handled
+        # since _NUM's trailing \s* allows zero whitespace).
+        if is_orange or is_mtn:
+            m = re.search(
+                rf"(?i)cashout\s+success.*?"
+                rf"amount:\s*(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?"
+                rf"fees:\s*(?P<fee>{self._NUM})\s*(?:XAF|FCFA).*?"
+                rf"transaction\s+id:\s*(?P<ref>\w+(?:\.\w+)*)",
+                clean_text
+            )
+            if m:
+                provider = AccountProvider.ORANGE_MONEY if is_orange else AccountProvider.MTN_MOMO
+                provider_label = "Orange Money" if is_orange else "MTN MoMo"
+                return {
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": self._to_decimal(m.group("fee")),
+                    "ref": m.group("ref"),
+                    "direction": TransactionDirection.DEBIT,
+                    "provider": provider,
+                    "category": TransactionCategory.EXPENSE_UTILITIES,
+                    "narrative": f"{provider_label} CashOut - Ref: {m.group('ref')}",
+                    "date": received_at,
+                }
+
+        # 11. Airtime / data bundle purchase confirmation. Example:
+        # "Congratulations, you have just made a payment of 1400 FCFA for
+        # 1400U = 1.59Go/7D + 2.32Go/7D. Transaction number: MP260721.2012.
+        # A18755. New balance: 16437.9 FCFA." No separate fee is quoted in
+        # this template - the payment amount is the full debit.
+        if is_orange or is_mtn:
+            m = re.search(
+                rf"(?i)made\s+a\s+payment\s+of\s+(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?"
+                rf"transaction\s+number:\s*(?P<ref>\w+(?:\.\w+)*)",
+                clean_text
+            )
+            if m:
+                provider = AccountProvider.ORANGE_MONEY if is_orange else AccountProvider.MTN_MOMO
+                provider_label = "Orange Money" if is_orange else "MTN MoMo"
+                return {
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": Decimal("0"),
+                    "ref": m.group("ref"),
+                    "direction": TransactionDirection.DEBIT,
+                    "provider": provider,
+                    "category": TransactionCategory.EXPENSE_UTILITIES,
+                    "narrative": f"{provider_label} Airtime/Data Purchase - Ref: {m.group('ref')}",
                     "date": received_at,
                 }
 

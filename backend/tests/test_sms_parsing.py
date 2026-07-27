@@ -265,3 +265,68 @@ def test_cashin_success_template_routes_provider_from_sender_not_body():
 
     assert orange_result["provider"] == AccountProvider.ORANGE_MONEY
     assert mtn_result["provider"] == AccountProvider.MTN_MOMO
+
+
+def test_real_successful_transfer_template_parses_as_debit_with_decimal_fee():
+    """
+    Regression test using an actual Orange Money P2P transfer confirmation
+    SMS. Distinct from the CashIn/CashOut templates: "Transaction ID:" comes
+    before the amount here, and Charges can be a decimal (12.1 FCFA) rather
+    than a whole number.
+    """
+    service = make_service()
+    text = (
+        "Successful transfer from 688882492 WIRBA to 692304978 ASSONFACK. "
+        "Transaction ID: PP260715.1129.A71039, Transaction amount: 4054 FCFA, "
+        "Charges: 12.1 FCFA, Commission: 0 FCFA, Net debit amount: 4066.1 FCFA, "
+        "New balance: 18037.9 FCFA."
+    )
+    result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("4054")
+    assert result["fee"] == Decimal("12.1")
+    assert result["ref"] == "PP260715.1129.A71039"
+    assert result["direction"] == TransactionDirection.DEBIT
+
+
+def test_real_cashout_success_alt_fields_template_parses():
+    """
+    Regression test using a real CashOut confirmation with a different field
+    vocabulary (Amount:/Fees:/Transaction ID:) than the other CashOut
+    template, and no space before "FCFA" in one figure (13160FCFA).
+    """
+    service = make_service()
+    text = (
+        "CashOut success by 656142339 with the Code : 221300. Detailed information : "
+        "Amount: 13000 FCFA, Fees: 160 FCFA, Transaction ID: CO260722.1229.B60008, "
+        "Net amount debited 13160FCFA, New balance: 3277.9 FCFA."
+    )
+    result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("13000")
+    assert result["fee"] == Decimal("160")
+    assert result["ref"] == "CO260722.1229.B60008"
+    assert result["direction"] == TransactionDirection.DEBIT
+
+
+def test_real_data_bundle_purchase_template_parses_with_zero_fee():
+    """
+    Regression test using a real airtime/data bundle purchase confirmation.
+    No separate fee is quoted in this template. Also verifies the reference
+    doesn't swallow the sentence-ending period after it.
+    """
+    service = make_service()
+    text = (
+        "Congratulations, you have just made a payment of 1400 FCFA for 1400U = "
+        "1.59Go/7D + 2.32Go/7D. Transaction number: MP260721.2012.A18755. "
+        "New balance: 16437.9 FCFA. More service at #150#"
+    )
+    result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("1400")
+    assert result["fee"] == Decimal("0")
+    assert result["ref"] == "MP260721.2012.A18755"  # NOT "MP260721.2012.A18755."
+    assert result["direction"] == TransactionDirection.DEBIT
