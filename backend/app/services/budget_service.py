@@ -163,3 +163,17 @@ class BudgetService(BaseService[Budget]):
             start_date=budget.start_date,
             end_date=budget.end_date,
         )
+
+    @staticmethod
+    def classify_risk_level(percentage_used: Decimal) -> str:
+        """
+        Deterministically classify budget risk from percentage_used.
+        SAFE: under 80% used. WARNING: 80-100% used. EXCEEDED: over 100% used.
+        Kept in the service layer (not the AI layer) per Engineering Law 1 —
+        the AI layer only ever narrates a risk level already decided here.
+        """
+        if percentage_used > Decimal("100.00"):
+            return "EXCEEDED"
+        if percentage_used >= Decimal("80.00"):
+            return "WARNING"
+        return "SAFE"

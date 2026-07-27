@@ -17,13 +17,25 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     DEBUG: bool = True
 
+    # Comma-separated list of allowed frontend origins for CORS. The API is
+    # accessed via a Bearer token in the Authorization header (see
+    # frontend/src/lib/api.ts), never cookies, so credentialed CORS is not
+    # needed here — origins are still kept explicit rather than "*" as a
+    # baseline safe default.
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def CORS_ORIGINS_LIST(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
     # Cryptographic JWT Config
     JWT_SECRET_KEY: str = "your-super-secret-jwt-key-for-development"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # Local SQLite Storage Database Connection
-    DATABASE_URL: str = "sqlite:///./mbamager.db"
+    # PostgreSQL Database Connection (async driver — repositories use AsyncSession)
+    # Format: postgresql+asyncpg://<user>:<password>@<host>:<port>/<database>
+    DATABASE_URL: str = "postgresql+asyncpg://mbamager:mbamager@localhost:5432/mbamager"
 
     # SMTP configuration for Password Recovery Emails
     SMTP_HOST: str = "smtp.gmail.com"

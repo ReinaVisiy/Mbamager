@@ -9,7 +9,7 @@ to TransactionService.
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.dependencies.auth import get_transaction_service, get_current_user, get_ai_service
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionCategory, TransactionDirection
 from app.models.user import User
 from app.schemas.transaction import (
     TransactionCreate,
@@ -21,6 +21,41 @@ from app.schemas.transaction import (
 from app.services import TransactionService, AIService
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
+
+@router.get("/", response_model=list[TransactionResponse])
+async def list_transactions(
+    account_id: int | None = None,
+    category: TransactionCategory | None = None,
+    direction: TransactionDirection | None = None,
+    current_user: User = Depends(get_current_user),
+    transaction_service: TransactionService = Depends(get_transaction_service),
+) -> list[Transaction]:
+    """
+    List transactions across every account owned by the authenticated user,
+    optionally narrowed to one account and/or filtered by category or direction.
+    """
+    try:
+        if account_id is not None:
+            transactions = await transaction_service.get_account_transactions(current_user.id, account_id)
+        else:
+            transactions = await transaction_service.get_user_transactions(current_user.id)
+    except ValueError as e:
+        if str(e) == "Account not found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    if category is not None:
+        transactions = [t for t in transactions if t.category == category]
+    if direction is not None:
+        transactions = [t for t in transactions if t.direction == direction]
+
+    return transactions
 
 @router.post("/", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
 async def create_transaction(

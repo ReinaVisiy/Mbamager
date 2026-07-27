@@ -37,6 +37,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { Skeleton } from '../components/ui/SkeletonLoader';
 import { dashboardService } from '../services/dashboard';
 import { transactionsService } from '../services/transactions';
+import { assistantService } from '../services/assistant';
 import { formatXAF, formatDate } from '../utils/format';
 import { Transaction } from '../types';
 
@@ -149,7 +150,20 @@ export default function Ai() {
     sendMessage(promptText);
   };
 
-  // Message Sender and Response Engine (Deterministic actual data analysis)
+  // Message Sender: delegates language generation to the real GUIDE backend
+  // (POST /assistant/chat), which grounds its reply in the user's actual
+  // transactions and budgets fetched server-side. No local mock logic.
+  const chatMutation = useMutation({
+    mutationFn: (payload: { message: string; history: Message[] }) =>
+      assistantService.chat({
+        message: payload.message,
+        conversation_history: payload.history.slice(-10).map(m => ({
+          sender: m.sender,
+          content: m.content,
+        })),
+      }),
+  });
+
   const sendMessage = (textToSend: string) => {
     if (!textToSend.trim()) return;
 
@@ -160,176 +174,36 @@ export default function Ai() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
+    const historyForRequest = messages;
     setMessages(prev => [...prev, userMsg]);
     setChatInput('');
     setIsTyping(true);
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const responseText = generateAIResponse(textToSend);
-      const assistantMsg: Message = {
-        id: `msg-${Date.now()}-assistant`,
-        sender: 'assistant',
-        content: responseText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      setIsTyping(false);
-    }, 850);
-  };
-
-  const generateAIResponse = (userQuery: string): string => {
-    const queryLower = userQuery.toLowerCase();
-    
-    // Spend query ("Where did I spend the most this month?")
-    if (queryLower.includes('most') || queryLower.includes('largest') || queryLower.includes('spend the most') || queryLower.includes('expense')) {
-      if (!insights) {
-        return "I am currently analyzing your transaction parameters. Please make sure your transactions have finished loading.";
+    chatMutation.mutate(
+      { message: textToSend, history: historyForRequest },
+      {
+        onSuccess: (data) => {
+          const assistantMsg: Message = {
+            id: `msg-${Date.now()}-assistant`,
+            sender: 'assistant',
+            content: data.reply,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+          setMessages(prev => [...prev, assistantMsg]);
+          setIsTyping(false);
+        },
+        onError: () => {
+          const errorMsg: Message = {
+            id: `msg-${Date.now()}-assistant`,
+            sender: 'assistant',
+            content: "I couldn't reach the assistant service just now. Please check your connection and try again.",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+          setMessages(prev => [...prev, errorMsg]);
+          setIsTyping(false);
+        },
       }
-      const topCats = insights.top_spending_categories || [];
-      const largest = insights.largest_expense;
-      
-      let response = `### 📊 Your Spending Analysis\n\n`;
-      if (largest && largest.narrative) {
-        response += `Your **largest single transaction** was:\n`;
-        response += `* **Narrative:** \`${largest.narrative}\`\n`;
-        response += `* **Amount:** **${formatXAF(largest.amount)}**\n\n`;
-      }
-      
-      if (topCats.length > 0) {
-        response += `Your **highest spending categories** are:\n`;
-        topCats.forEach((c, idx) => {
-          const catLabel = CATEGORY_LABELS[c.category] || c.category;
-          const pctStr = c.percentage ? ` (${Number(c.percentage).toFixed(1)}%)` : '';
-          response += `${idx + 1}. **${catLabel}**: **${formatXAF(c.amount)}**${pctStr}\n`;
-        });
-      } else {
-        response += `I couldn't find any categorized expenses in your profile yet. Add some transactions to get a deeper breakdown!`;
-      }
-      return response;
-    }
-
-    // Savings query ("How much did I save?")
-    if (queryLower.includes('save') || queryLower.includes('saved') || queryLower.includes('saving') || queryLower.includes('goal')) {
-      const goals = summary?.savings_goals || [];
-      const income = summary?.total_income || 0;
-      const expenses = summary?.total_expenses || 0;
-      const netSavings = income - expenses;
-
-      let response = `### 🪙 Savings & Goals Breakdown\n\n`;
-      response += `Based on your logged inflows and outflows:\n`;
-      response += `* **Total Income:** \`${formatXAF(income)}\`\n`;
-      response += `* **Total Expenses:** \`${formatXAF(expenses)}\`\n`;
-      response += `* **Net Financial Surplus:** **${formatXAF(netSavings)}**\n\n`;
-
-      if (goals.length > 0) {
-        response += `#### 🎯 Savings Goals Progress:\n`;
-        goals.forEach(g => {
-          const progressPct = g.target_amount > 0 ? Math.round((g.current_amount / g.target_amount) * 100) : 0;
-          response += `* **${g.name}**: Saved **${formatXAF(g.current_amount)}** of **${formatXAF(g.target_amount)}** (${progressPct}% complete)\n`;
-        });
-      } else {
-        response += `*No active savings goals found.* Setting up small savings targets is a great way to safeguard against emergencies. Try creating a goal in the **Goals** tab!`;
-      }
-      return response;
-    }
-
-    // Reduction query ("What should I reduce?")
-    if (queryLower.includes('reduce') || queryLower.includes('cut') || queryLower.includes('decrease') || queryLower.includes('limit') || queryLower.includes('warning')) {
-      if (!insights) {
-        return "I'm still scanning your active budget parameters. Let me fetch the guidelines shortly.";
-      }
-      const warnings = insights.budget_warnings || [];
-      const alerts = insights.unusual_spending_alerts || [];
-      const recs = insights.budget_recommendations || [];
-
-      let response = `### 📉 Expense Reduction Advisory\n\n`;
-      response += `Here are the top budget limits and categories to focus on for optimizing savings:\n\n`;
-
-      response += `#### ⚠️ Active Budget Warnings\n`;
-      if (warnings.length > 0) {
-        warnings.forEach(w => {
-          response += `* ${w}\n`;
-        });
-      } else {
-        response += `* *None!* Your recent transactions are safely within all active category limits.\n`;
-      }
-
-      response += `\n#### 🔍 Unusual Spending Alerts\n`;
-      if (alerts.length > 0) {
-        alerts.forEach(a => {
-          response += `* ${a}\n`;
-        });
-      } else {
-        response += `* No unusual payment surges or anomalous MTN/Orange MoMo spikes detected.\n`;
-      }
-
-      response += `\n#### 💡 Actionable Adjustments\n`;
-      if (recs.length > 0) {
-        recs.forEach(r => {
-          response += `* ${r}\n`;
-        });
-      } else {
-        response += `* Keep monitoring your non-essential daily subscriptions and mobile fee caches.\n`;
-      }
-      return response;
-    }
-
-    // Explain query ("Explain my spending.")
-    if (queryLower.includes('explain') || queryLower.includes('spending') || queryLower.includes('habits') || queryLower.includes('behavior')) {
-      if (!insights) {
-        return "Calculating your behavior graphs. One moment.";
-      }
-      const trend = insights.income_trend;
-      const suggestions = insights.savings_suggestions || [];
-
-      let response = `### 🧠 AI Spending Executive Summary\n\n`;
-      response += `#### 📈 Income Trajectory\n`;
-      response += `* ${trend || 'Your income flow appears stable across your registered accounts.'}\n\n`;
-
-      response += `#### 💡 Top Insights & Savings Recommendations\n`;
-      if (suggestions.length > 0) {
-        suggestions.forEach(s => {
-          response += `* ${s}\n`;
-        });
-      } else {
-        response += `* Try keeping a buffer of 15% in your primary wallet to cover transfer fees.\n`;
-      }
-      
-      if (insights.top_spending_categories && insights.top_spending_categories.length > 0) {
-        const topCat = insights.top_spending_categories[0];
-        const catLabel = CATEGORY_LABELS[topCat.category] || topCat.category;
-        response += `\nCurrently, your primary wallet driver is **${catLabel}** with a cumulative spend of **${formatXAF(topCat.amount)}**.\n`;
-      }
-      return response;
-    }
-
-    // Custom search matching in user's transactions
-    if (transactions && transactions.length > 0) {
-      const matched = transactions.filter(tx => {
-        const narrative = (tx.narrative || '').toLowerCase();
-        const cat = tx.category.toLowerCase();
-        const label = (CATEGORY_LABELS[tx.category] || '').toLowerCase();
-        return queryLower.split(' ').some(word => word.length > 2 && (narrative.includes(word) || cat.includes(word) || label.includes(word)));
-      });
-
-      if (matched.length > 0) {
-        let response = `I scanned your ledger and found **${matched.length}** transactions matching your query:\n\n`;
-        matched.slice(0, 5).forEach(tx => {
-          const sign = tx.direction === 'CREDIT' ? '+' : '-';
-          const dateStr = tx.timestamp ? formatDate(tx.timestamp) : 'N/A';
-          const catLabel = CATEGORY_LABELS[tx.category] || tx.category;
-          response += `* **${tx.narrative || 'Mobile payment'}** (${catLabel}) on \`${dateStr}\`: **${sign}${formatXAF(tx.amount)}** (Confidence: ${tx.ai_confidence ? Math.round(tx.ai_confidence * 100) + '%' : 'Manual/N/A'})\n`;
-        });
-        if (matched.length > 5) {
-          response += `\n*(Showing top 5 matches. Use the Transaction Intelligence ledger below to filter the full list of ${matched.length} transactions)*`;
-        }
-        return response;
-      }
-    }
-
-    // General fallback
-    return `I am your **Mbamager AI Financial Assistant**. I have complete access to your account balances, mobile money records, and budget allocations.\n\nAsk me questions like:\n- *Where did I spend the most this month?*\n- *How much did I save?*\n- *What should I reduce?*\n- *Explain my spending.*\n\nYou can also type keywords like \`Orange\`, \`MTN\`, \`Rent\`, \`Salary\` to let me search your logs!`;
+    );
   };
 
   // Filter messages in current chat history

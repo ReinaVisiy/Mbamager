@@ -103,7 +103,7 @@ Defines spending limits and boundaries assigned over targeted periodic intervals
 
 ## 2. Enums, Indexes, and Constraints
 
-### A. Python Enums (Mapped to SQLite)
+### A. Python Enums (Mapped to PostgreSQL)
 1.  **`AccountType`**: String-backed enum specifying `CASH`, `MOBILE_MONEY`, `BANK`, or `OTHER`. This allows multi-channel categorization.
 2.  **`AccountProvider`**: String-backed enum specifying network provider (`MTN_MOMO`, `ORANGE_MONEY`, `CASH`, `BANK`, `OTHER`).
 3.  **`TransactionDirection`**: String-backed enum specifying `CREDIT` (cash in) or `DEBIT` (cash out) for deterministic value addition or subtraction.

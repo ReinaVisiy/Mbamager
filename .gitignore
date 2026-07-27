@@ -1,0 +1,23 @@
+# --- Frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.local
+
+# --- Backend ---
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/mbamager.db
+backend/.env
+backend/app/logs/*.log
+backend/__pycache__/
+backend/alembic/__pycache__/
+backend/alembic/versions/__pycache__/
+
+# --- General ---
+.DS_Store
+*.pyc
+.vscode/
+.idea/

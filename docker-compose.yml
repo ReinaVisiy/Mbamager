@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mbamager-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mbamager
+      POSTGRES_PASSWORD: mbamager
+      POSTGRES_DB: mbamager
+    ports:
+      - "5432:5432"
+    volumes:
+      - mbamager_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mbamager -d mbamager"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mbamager_postgres_data:

@@ -240,7 +240,7 @@ async def get_dashboard_insights(
             serialized_budgets.append({
                 "id": budget.id,
                 "category": budget.category.value,
-                "amount_limit": float(budget.amount_limit),
+                "amount_limit": float(progress.limit_amount),
                 "amount_spent": float(progress.spent_amount),
                 "remaining_amount": float(progress.remaining_amount),
                 "percentage_used": float(progress.percentage_used)

@@ -109,16 +109,16 @@ def test_account_creation_and_retrieval(client: TestClient):
     # 3. Create a new account
     account_payload = {
         "name": "Orange Money Wallet",
-        "type": "MOBILE_MONEY",
-        "provider": "ORANGE",
-        "balance": "150000.00",
+        "account_type": "MOBILE_MONEY",
+        "provider": "ORANGE_MONEY",
         "currency": "XAF"
     }
     response = client.post("/api/v1/accounts/", json=account_payload, headers=headers)
     assert response.status_code == status.HTTP_201_CREATED
     new_account = response.json()
     assert new_account["name"] == "Orange Money Wallet"
-    assert new_account["balance"] == 150000.0
+    assert new_account["account_type"] == "MOBILE_MONEY"
+    assert new_account["provider"] == "ORANGE_MONEY"
     assert "id" in new_account
     account_id = new_account["id"]
 

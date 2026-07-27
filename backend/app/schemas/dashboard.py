@@ -38,9 +38,9 @@ class DashboardSummary(BaseSchema):
     account_balances: dict[int, Decimal] = Field(..., description="Mapping of account ID to active balance")
     active_budgets: list[BudgetResponse] = Field(..., description="List of active budgets")
     budget_progress: list[BudgetProgressResponse] = Field(..., description="Usage and spending metrics for active budgets")
-    savings_goals: list[SavingsGoalResponse] = Field(..., default=[], description="List of the user's savings goals")
-    upcoming_payments: list[RecurringTransactionResponse] = Field(..., default=[], description="List of active recurring payments templates")
-    unread_notifications: list[NotificationResponse] = Field(..., default=[], description="List of unread notifications")
+    savings_goals: list[SavingsGoalResponse] = Field(default_factory=list, description="List of the user's savings goals")
+    upcoming_payments: list[RecurringTransactionResponse] = Field(default_factory=list, description="List of active recurring payments templates")
+    unread_notifications: list[NotificationResponse] = Field(default_factory=list, description="List of unread notifications")
 
 
 class NetWorthResponse(BaseSchema):

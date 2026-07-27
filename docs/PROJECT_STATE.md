@@ -23,7 +23,7 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 
 *   **Frontend:** React (SPA) + Tailwind CSS + Lucide Icons. Built with desktop precision and a responsive, warm mobile-first layout.
 *   **Backend:** FastAPI (Python 3.12). Replaced the temporary Express node layer with Vite development static proxying to directly route API calls.
-*   **Database:** SQLite (local development file `mbamager.db` mapped via SQLAlchemy ORM).
+*   **Database:** PostgreSQL 16 (via Docker Compose, `postgresql+asyncpg://` async driver), mapped via SQLAlchemy 2.0 ORM.
 *   **Migrations:** Alembic configured with auto-generation support, mapped models, and custom database URL properties.
 *   **Cognitive Services:** Server-side Gemini API SDK (`@google/genai` or `google-genai` Python library) driving the AI Layer with isolated prompts.
 
@@ -32,7 +32,7 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 ## 5. Frozen Engineering Rules
 
 1.  **AI Never Owns Money (Core Engineering Law):** Under no circumstances may AI compute, calculate, write, or modify financial ledger balances, budgets, nets, or transactions. All calculations must be performed by deterministic Python business services. The AI is restricted strictly to text parsing, scam risk classification, insight suggestions, translation, and coaching.
-2.  **Financial Precision:** The `float` data type is banned for financial values. All money, transactions, fees, and balances must be stored and calculated using Python's `decimal.Decimal` class and SQLite `Numeric(precision=18, scale=2)` configurations.
+2.  **Financial Precision:** The `float` data type is banned for financial values. All money, transactions, fees, and balances must be stored and calculated using Python's `decimal.Decimal` class and PostgreSQL `Numeric(precision=18, scale=2)` configurations.
 3.  **Two-Stage Parsing Pipeline:** The SMS transaction parsing system must always attempt fast, local, and free regular expression matches (Stage 1) from `app/constants/sms_patterns.py` first. It may only fallback to Gemini API parsing (Stage 2) if regex confidence is zero, minimizing API latency and preserving free-tier quotas.
 4.  **Modular, Layered Responsibility:**
     *   **Routers:** Handle HTTP transport only; no calculations.
@@ -45,8 +45,8 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 ---
 
 ## 6. Current Sprint
-*   **Active Sprint:** Sprint 3 — Domain Model Design (Completed)
-*   **Goal:** Design and implement robust SQLAlchemy 2.0 domain models for User, FinancialProfile, Account, Transaction, and Budget with strict indexation, typing, decimal precision, and relationships.
+*   **Active Sprint:** Sprint 6 — Hardening (in progress)
+*   **Goal:** Sprints 3–5 (auth/schemas, transaction ledger, AI coaching & scam alerts) are functionally complete — see Section 7. Current work is fixing bugs and gaps found in a full code/spec review, tracked as `fix #N` commits, plus closing the remaining product gaps in Section 8.
 
 ---
 
@@ -64,37 +64,45 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 *   [x] Designed a professional, responsive React landing dashboard centering a real-time health indicator, architectural descriptions, and an interactive Stage 1 regex sandbox playground.
 *   [x] Designed and implemented five modular SQLAlchemy 2.0 models: `User`, `FinancialProfile`, `Account`, `Transaction`, and `Budget`.
 *   [x] Explicitly imported and exported all SQLAlchemy models inside `app/models/__init__.py` and registered them inside Alembic `env.py` to ensure reliable migration auto-generations.
+*   [x] Built Pydantic schemas (`app/schemas/`), repositories (`app/repositories/`), and services (`app/services/`) for auth, accounts, transactions, budgets, savings goals, and recurring transactions.
+*   [x] Implemented JWT authentication routers (register, login, refresh, forgot/reset password with OTP, profile).
+*   [x] Implemented the two-stage SMS parsing pipeline (regex first, Gemini fallback) with active database writes (`sms_service.py`, `sms_recovery_service.py`).
+*   [x] Wired up APScheduler for automatic recurring-transaction processing (`fix #5`).
+*   [x] Implemented Scam Sentinel end-to-end: AI analysis + `/scam` routes + dashboard/SMS-page warnings (`fix #6`).
+*   [x] Implemented Budget Coach / COMPASS service and endpoint (`fix #7`).
+*   [x] Implemented and wired the Financial Assistant / GUIDE chat backend to the frontend (`fix #8`).
+*   [x] Fixed a `/dashboard/insights` crash and the account-creation test (`fix #9`).
+*   [x] Added the missing `recharts` frontend dependency that `Analytics.tsx` depends on (`fix #10`).
+*   [x] Fixed an invalid CORS config (`allow_origins=["*"]` + `allow_credentials=True`); switched to explicit configurable origins with credentials off, matching the Bearer-token (non-cookie) auth model (`fix #11`).
+*   [x] Removed the dead, unused `backend/app/routers/` package (`fix #13`).
+*   [x] Fixed a real production bug in `BaseRepository.create()`/`update()`: neither refreshed the object after `flush()`, so any model with an `onupdate=func.now()` column (e.g. `Transaction.updated_at`) crashed with `MissingGreenlet` the moment a response tried to serialize it — reproduced via the new transaction tests below (`fix #14`).
+*   [x] Added unit/API test coverage for the transaction ledger (Decimal precision round-trip, validation, CRUD, cross-user access), the SMS Stage-1 regex parser (all 8 message shapes plus the Gemini-fallback `None` cases), and the budget risk classifier — 28 tests total, up from 5 (`fix #15`).
 
 ---
 
 ## 8. Pending Tasks
 
-### Sprint 3 — JWT Authentication & Schemas
-*   [ ] Build Pydantic validation schemas (`app/schemas/`) for user signup, logins, and transaction forms.
-*   [ ] Build repositories (`app/repositories/`) to abstract database operations.
-*   [ ] Implement authentication routers and registration endpoints utilizing bcrypt hashing.
+### Sprint 6 — Hardening (current)
+*   [ ] Continue expanding test coverage — transaction ledger, SMS Stage-1 parsing, and budget risk classification now have unit/API tests (`fix #14`/`#15`), but budgets' full progress calculation, goals, recurring transactions, and the AI services (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE) are still untested.
+*   [x] Verified `google-genai` SDK compatibility against the current Gemini 3.x model lineup and bumped the pin from `0.5.0` to `2.14.0` (`fix #17`). `gemini-3.5-flash` (`GEMINI_MODEL`) is GA and current; Google now recommends `google-genai>=2.0.0`. The code only uses the stable `client.models.generate_content()` interface (not the newer Interactions API, which has breaking changes across versions), and that surface is unchanged between `0.5.0` and `2.14.0` — confirmed by import checks and the full test suite (54/54) passing unmodified against the new pin. Not yet verified against a live Gemini API call (no API key available in this environment) — recommend a smoke test against a real key before relying on this in production.
 
-### Sprint 4 — Transaction Ingestion & Ledger Services
-*   [ ] Implement Stage 1 & Stage 2 SMS parser pipelines, mapping inputs to clean Transaction records.
-*   [ ] Implement deterministic transaction services (calculating balances, daily category sums, and fee aggregations).
-*   [ ] Integrate active database writes.
+### Sprint 7 — Njangi / Tontine Groups (not started)
+*   [ ] Design and implement a group-savings model (no `NjangiGroup`-equivalent exists yet; `AccountType`/`AccountProvider` have no group-savings option). The product vision (Section 1) and pitch (Section 2) both promise this, but it is not yet built.
 
-### Sprint 5 — Automated Coaching & Scam Alerts
-*   [ ] Integrate prompt templates from `app/prompts/` with the Gemini SDK client.
-*   [ ] Implement background scam monitoring (Scam Sentinel) with warnings surfaced inside response payloads.
-*   [ ] Implement budget coaching feedback calculations.
+### Sprint 8 — Search at scale (not started)
+*   [ ] Global search (Ctrl+K) currently exists only as client-side filtering over fully-fetched accounts/transactions/goals/recurring/notifications (`GlobalSearch.tsx`). Fine at MVP scale; will need a real backend `/search` endpoint once transaction history grows.
 
 ---
 
 ## 9. Next Immediate Task
-*   **Sprint 3 Part B:** Design and implement Pydantic schemas (`app/schemas/`) for User register/login payload validations and secure Transaction entry inputs.
+*   **Sprint 6:** Continue expanding test coverage — budgets' full progress calculation, goals, recurring transactions, then the AI services.
 
 ---
 
 ## 10. Technical Decisions
 *   **No Express dependency:** Removed Node Express server to keep FastAPI as the single source of truth for backend services, reducing project complexity.
 *   **Single CSS File:** Preserved Tailwind v4 standard config (`@import "tailwindcss";` inside `index.css`) for high performance.
-*   **SQLite as Primary Store:** Lightweight, serverless, and transaction-safe database engine perfect for an MVP hackathon project in Cameroon.
+*   **PostgreSQL as Primary Store:** Runs via Docker Compose (`postgres:16-alpine`) with the async `asyncpg` driver for the app and sync `psycopg2-binary` for Alembic migrations. Superseded the earlier SQLite plan once Alembic and concurrent-write requirements made Postgres the better fit.
 
 ---
 
@@ -119,6 +127,7 @@ mbamager/
 │   ├── alembic/              # Database migration version files
 │   ├── app/
 │   │   ├── ai/               # AI Cognitive services (M-PARSE, COMPASS, etc.)
+│   │   ├── api/routes/       # FastAPI HTTP request handlers, registered in main.py
 │   │   ├── constants/        # static values (providers, categories, currencies)
 │   │   ├── core/             # JWT, Bcrypt security, and global configuration
 │   │   ├── database/         # Session managers and ORM Declarative Base
@@ -126,7 +135,6 @@ mbamager/
 │   │   ├── models/           # SQLAlchemy Database tables
 │   │   ├── prompts/          # System prompts for Gemini
 │   │   ├── repositories/     # SQLAlchemy Database CRUD wrappers
-│   │   ├── routers/          # FastAPI HTTP request handlers
 │   │   ├── schemas/          # Pydantic request-response schemas
 │   │   ├── services/         # Deterministic business logic services
 │   │   └── main.py           # FastAPI entrypoint
@@ -147,9 +155,10 @@ mbamager/
 
 ---
 
-## 13. Known Limitations (Sprint 2)
-*   **Simulated Backend Connection:** Frontend handles Stage 1 regex logic in an interactive playground mock interface during dev server runtime, as the active SQLite write APIs are scheduled for Sprint 3/4.
-*   **Placeholder Prompts:** Prompts in `app/prompts/` exist as markdown structural headers; full instruction matrices will be finalized in Sprint 5.
+## 13. Known Limitations (Sprint 6)
+*   **Test coverage still growing:** transaction ledger, SMS Stage-1 parsing, and budget risk classification are now covered (28 tests total); budgets' progress calc, goals, recurring transactions, and all AI services remain untested. See Section 8.
+*   **No Njangi/Tontine support yet:** promised in the product vision but not yet modeled or built. See Section 8.
+*   **Search doesn't scale:** global search is client-side only, fetching full collections per open. Fine for MVP, not for growth. See Section 8.
 
 ---
 
@@ -161,3 +170,7 @@ mbamager/
 
 ## 15. Changelog
 *   **2026-06-30:** Removed Express and consolidated to Vite server mock endpoints for development runtime. Renamed `transaction_categories.py` to `categories.py`. Generated core safety architectures, security crypt engines, Alembic migration systems, and created `docs/PROJECT_STATE.md` to persist the roadmap across development turns.
+*   **2026-07-26:** Corrected this document's database references from SQLite to PostgreSQL — the actual running database, per `core/config.py`, `docker-compose.yml`, and `requirements.txt`, has been Postgres (`asyncpg`/`psycopg2-binary`) all along; the SQLite references were stale. Also added the previously-missing `accounts` router, fixed the SMS-import frontend call to hit `/sms/import` instead of a nonexistent `/sms/parse`, and added a `GET /transactions/` list-all endpoint.
+*   **2026-07-26 (cont'd):** Shipped the remaining Sprint 4/5 work: APScheduler-driven recurring transactions (`fix #5`), Scam Sentinel (`fix #6`), Budget Coach (`fix #7`), Financial Assistant / GUIDE (`fix #8`), and a `/dashboard/insights` crash fix (`fix #9`). Full code-vs-spec review surfaced further gaps; fixed the missing `recharts` frontend dependency (`fix #10`) and an invalid CORS config (`fix #11`). This document itself was significantly out of date — Sections 6–9 and 13 above have been rewritten to match the code's actual state rather than the Sprint 3 snapshot they were frozen at.
+*   **2026-07-26 (cont'd):** Removed the dead `backend/app/routers/` package (`fix #13`) and corrected the Section 12 folder tree, which had never listed the real `backend/app/api/routes/` directory in the first place.
+*   **2026-07-26 (cont'd):** Began expanding test coverage per Section 8. Writing tests for transaction creation surfaced a real bug: `BaseRepository.create()`/`update()` never refreshed after `flush()`, so `onupdate=func.now()` columns crashed API responses with `MissingGreenlet` (`fix #14`). Added 23 new tests across transactions, SMS Stage-1 parsing, and budget risk classification (`fix #15`).

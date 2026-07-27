@@ -29,9 +29,17 @@ class BaseRepository(Generic[T]):
     async def create(self, obj: T) -> T:
         """
         Persist a new model instance in the database.
+
+        Refreshes after flush so server-generated columns (e.g. timestamps
+        with onupdate=func.now()) are actually materialized on the object.
+        Without this, SQLAlchemy leaves those attributes expired after
+        flush, and accessing them later during response serialization
+        triggers an implicit lazy load that isn't safe outside of an
+        async-aware context (raises MissingGreenlet).
         """
         self.db.add(obj)
         await self.db.flush()
+        await self.db.refresh(obj)
         return obj
 
     async def get_by_id(self, id: int) -> T | None:
@@ -51,9 +59,13 @@ class BaseRepository(Generic[T]):
     async def update(self, obj: T) -> T:
         """
         Update an existing model instance and flush the session.
+
+        Refreshes after flush for the same reason as create() — onupdate
+        columns are left expired otherwise and crash on later access.
         """
         self.db.add(obj)
         await self.db.flush()
+        await self.db.refresh(obj)
         return obj
 
     async def delete(self, obj: T) -> None:

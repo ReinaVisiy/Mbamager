@@ -21,7 +21,8 @@ import {
   ListFilter,
   ArrowUpDown,
   Send,
-  Plus
+  Plus,
+  ShieldAlert
 } from 'lucide-react';
 
 import { PageHeader } from '../components/common/PageHeader';
@@ -30,6 +31,7 @@ import { Button } from '../components/ui/Button';
 import { ErrorState } from '../components/common/ErrorState';
 import { EmptyState } from '../components/common/EmptyState';
 import { smsService, parseSmsClient, SMSMessage, SMSImportRequest, ParsedSms } from '../services/sms';
+import { scamService, ScamAnalysisResponse } from '../services/scam';
 import { formatXAF, formatDate } from '../utils/format';
 
 // Core preset SMS messages for Cameroon unbanked / underbanked operations
@@ -152,6 +154,7 @@ export default function Sms() {
       // Clear inputs
       setSingleBody('');
       setCustomSender('');
+      setScamResult(null);
       
       // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ['unprocessedSms'] });
@@ -244,6 +247,14 @@ export default function Sms() {
     onError: (error: any, id: number) => {
       alert(`Manual extraction failed for SMS #${id}: ${error.message || 'Missing active account'}`);
     }
+  });
+
+  // 4. Scam Sentinel: check the currently-typed single-import message for fraud risk
+  const [scamResult, setScamResult] = React.useState<ScamAnalysisResponse | null>(null);
+  const scamCheckMutation = useMutation({
+    mutationFn: () => scamService.analyze({ text: singleBody, sender: finalSender }),
+    onSuccess: (result) => setScamResult(result),
+    onError: () => setScamResult(null),
   });
 
   // Live client-side parsing preview for single import text area
@@ -511,7 +522,10 @@ export default function Sms() {
                         rows={5}
                         placeholder="Paste Cameroon SMS notification block here..."
                         value={singleBody}
-                        onChange={(e) => setSingleBody(e.target.value)}
+                        onChange={(e) => {
+                          setSingleBody(e.target.value);
+                          setScamResult(null);
+                        }}
                         className="w-full p-4 bg-slate-950 border border-slate-900 text-xs font-mono text-slate-200 rounded-2xl outline-none focus:border-slate-800 resize-none leading-relaxed"
                       />
                     </div>
@@ -531,6 +545,50 @@ export default function Sms() {
                         Regex Mismatch Preview: SMS body will be marked unprocessed. You can manually classify it later.
                       </div>
                     ) : null}
+
+                    {/* SCAM SENTINEL CHECK */}
+                    <div className="space-y-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={scamCheckMutation.isPending || !singleBody.trim()}
+                        onClick={() => scamCheckMutation.mutate()}
+                        className="h-9 px-4 font-mono font-bold text-[11px] uppercase gap-2"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        {scamCheckMutation.isPending ? 'Checking...' : 'Check for Scams'}
+                      </Button>
+
+                      {scamResult ? (
+                        <div
+                          className={`p-3.5 rounded-xl border text-[11px] font-medium space-y-1.5 ${
+                            scamResult.risk_level === 'HIGH'
+                              ? 'bg-red-500/5 border-red-950/30 text-red-400'
+                              : scamResult.risk_level === 'MEDIUM'
+                              ? 'bg-amber-500/5 border-amber-950/30 text-amber-400'
+                              : 'bg-emerald-500/5 border-emerald-950/30 text-emerald-400'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ShieldAlert className="w-4 h-4 shrink-0" />
+                            <span className="font-bold uppercase tracking-wide">
+                              {scamResult.risk_level} risk
+                            </span>
+                            <span className="font-mono opacity-70">
+                              ({Math.round(scamResult.risk_score * 100)}%)
+                            </span>
+                          </div>
+                          {scamResult.reasons.length > 0 && (
+                            <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                              {scamResult.reasons.map((reason, i) => (
+                                <li key={i}>{reason}</li>
+                              ))}
+                            </ul>
+                          )}
+                          <p className="opacity-90">{scamResult.recommended_action}</p>
+                        </div>
+                      ) : null}
+                    </div>
 
                     {/* SUBMIT */}
                     <div className="flex justify-end pt-2">

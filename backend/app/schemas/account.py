@@ -41,9 +41,11 @@ class AccountBase(BaseSchema):
 
 class AccountCreate(AccountBase):
     """
-    Payload required to register a new storage account.
+    Payload required to register a new storage account. user_id is
+    intentionally NOT part of this payload — it is always taken from the
+    authenticated user's JWT in the route, never from client input.
     """
-    user_id: int = Field(..., description="Unique user identifier associated with this account")
+    pass
 
 class AccountUpdate(BaseSchema):
     """

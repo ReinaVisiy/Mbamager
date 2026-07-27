@@ -9,11 +9,13 @@ to BudgetService.
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.dependencies.auth import get_budget_service, get_current_user
+from app.api.dependencies.auth import get_ai_service, get_budget_service, get_current_user
+from app.core.rate_limiter import limit_ai
 from app.models.budget import Budget
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetUpdate, BudgetResponse
-from app.services import BudgetService
+from app.schemas.budget_coach import BudgetCoachResponse
+from app.services import AIService, BudgetService
 
 router = APIRouter(prefix="/budgets", tags=["Budgets"])
 
@@ -56,6 +58,54 @@ async def get_budget(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+
+@router.get("/{budget_id}/coach", response_model=BudgetCoachResponse, dependencies=[Depends(limit_ai)])
+async def get_budget_coaching(
+    budget_id: int,
+    current_user: User = Depends(get_current_user),
+    budget_service: BudgetService = Depends(get_budget_service),
+    ai_service: AIService = Depends(get_ai_service),
+) -> BudgetCoachResponse:
+    """
+    Generate COMPASS budget coaching for a specific budget.
+
+    BudgetService computes the deterministic progress metrics and risk tier;
+    AIService (COMPASS) only turns those already-decided numbers into a
+    friendly, actionable message. Advisory only — never modifies the budget.
+    """
+    try:
+        await budget_service.get_user_budget(current_user.id, budget_id)
+        progress = await budget_service.calculate_budget_progress(budget_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    risk_level = BudgetService.classify_risk_level(progress.percentage_used)
+
+    coaching = ai_service.generate_budget_coaching(
+        category=progress.category.value,
+        limit_amount=progress.limit_amount,
+        spent_amount=progress.spent_amount,
+        remaining_amount=progress.remaining_amount,
+        percentage_used=progress.percentage_used,
+        risk_level=risk_level,
+    )
+
+    return BudgetCoachResponse(
+        budget_id=progress.budget_id,
+        category=progress.category,
+        limit_amount=progress.limit_amount,
+        spent_amount=progress.spent_amount,
+        remaining_amount=progress.remaining_amount,
+        percentage_used=progress.percentage_used,
+        risk_level=risk_level,
+        message=coaching["message"],
+        tips=coaching.get("tips", []),
+        encouragement=coaching.get("encouragement", ""),
+    )
+
 
 @router.post("/", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
 async def create_budget(
