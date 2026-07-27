@@ -86,6 +86,46 @@ class SMSService(BaseService[SMSMessage]):
             or "MOBILEMONEY" in sender_compact
         ) and not is_orange
 
+        # 1b. "CashIn/CashOut Success" labeled-field template (real-world Orange
+        # Money / MTN MoMo Cameroon confirmation format, distinct from the
+        # inline "sent/received X fee: Y ref: Z" templates above). Example:
+        # "CashIn Success by ... transaction amount: 4000 FCFA, transaction
+        # id: CI260721.1748.A80666, charges: 0 FCFA, commission: 0 FCFA, ..."
+        # Reference IDs in this format can contain dots (CI260721.1748.A80666),
+        # which bare \w+ doesn't match - hence [\w.]+ here specifically.
+        if is_orange or is_mtn:
+            m = re.search(
+                rf"(?i)cash(?P<txdir>in|out)\s+success.*?"
+                rf"transaction\s+amount:\s*(?P<amount>{self._NUM})\s*(?:XAF|FCFA).*?"
+                rf"transaction\s+id:\s*(?P<ref>[\w.]+).*?"
+                rf"charges?:\s*(?P<charges>{self._NUM})\s*(?:XAF|FCFA)"
+                rf"(?:.*?commission:\s*(?P<commission>{self._NUM})\s*(?:XAF|FCFA))?",
+                clean_text
+            )
+            if m:
+                direction = (
+                    TransactionDirection.CREDIT if m.group("txdir").lower() == "in"
+                    else TransactionDirection.DEBIT
+                )
+                provider = AccountProvider.ORANGE_MONEY if is_orange else AccountProvider.MTN_MOMO
+                fee = self._to_decimal(m.group("charges"))
+                if m.group("commission"):
+                    fee += self._to_decimal(m.group("commission"))
+                provider_label = "Orange Money" if is_orange else "MTN MoMo"
+                return {
+                    "amount": self._to_decimal(m.group("amount")),
+                    "fee": fee,
+                    "ref": m.group("ref"),
+                    "direction": direction,
+                    "provider": provider,
+                    "category": (
+                        TransactionCategory.INCOME_REMITTANCE if direction == TransactionDirection.CREDIT
+                        else TransactionCategory.EXPENSE_UTILITIES
+                    ),
+                    "narrative": f"{provider_label} Cash{m.group('txdir').capitalize()} - Ref: {m.group('ref')}",
+                    "date": received_at,
+                }
+
         # 1. MTN Mobile Money Debit
         if is_mtn and any(kw in text_upper for kw in ("TRANSFER", "SENT", "TRANSFERRED", "PAY", "PAID")):
             m = re.search(

@@ -209,3 +209,59 @@ def test_comma_formatted_credit_amount_parses_correctly():
 
     assert result is not None
     assert result["amount"] == Decimal("1250000")
+
+
+def test_real_orange_cashin_success_template_parses():
+    """
+    Regression test using an actual Orange Money Cameroon confirmation SMS
+    that failed to parse in production. This is a completely different
+    template from the "sent/received X fee: Y ref: Z" ones above - labeled
+    fields ("transaction amount:", "charges:", "transaction id:") instead of
+    inline phrasing, no "sent"/"received" trigger keyword at all, and a
+    dotted reference ID that a bare \\w+ can't match.
+    """
+    service = make_service()
+    text = (
+        "CashIn Success by 695721562 JEANNETTE to 688882492 WIRBA. The details are as follows: "
+        "transaction amount: 4000 FCFA, transaction id: CI260721.1748.A80666, charges: 0 FCFA, "
+        "commission: 0 FCFA, net credit amount : 4000 FCFA, new balance: 17837.9 FCFA."
+    )
+    result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("4000")
+    assert result["fee"] == Decimal("0")
+    assert result["ref"] == "CI260721.1748.A80666"
+    assert result["direction"] == TransactionDirection.CREDIT
+    assert result["provider"] == AccountProvider.ORANGE_MONEY
+
+
+def test_cashout_success_template_is_debit_and_sums_charges_plus_commission():
+    service = make_service()
+    text = (
+        "CashOut Success by 695721562 JEANNETTE to 688882492 WIRBA. The details are as follows: "
+        "transaction amount: 10,000 FCFA, transaction id: CO260721.1748.B99777, charges: 150 FCFA, "
+        "commission: 25 FCFA, net debit amount : 10150 FCFA, new balance: 7837.9 FCFA."
+    )
+    result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+
+    assert result is not None
+    assert result["amount"] == Decimal("10000")
+    assert result["fee"] == Decimal("175")  # charges (150) + commission (25)
+    assert result["direction"] == TransactionDirection.DEBIT
+
+
+def test_cashin_success_template_routes_provider_from_sender_not_body():
+    """The message body doesn't name a provider at all - provider must come
+    from the sender field, and the same body text should route differently
+    depending on which sender it arrived from."""
+    service = make_service()
+    text = (
+        "CashIn Success by 695721562 JEANNETTE to 688882492 WIRBA. "
+        "transaction amount: 4000 FCFA, transaction id: CI999, charges: 0 FCFA."
+    )
+    orange_result = service.parse_sms(text, sender="OrangeMoney", received_at=RECEIVED_AT)
+    mtn_result = service.parse_sms(text, sender="MTN_MoMo", received_at=RECEIVED_AT)
+
+    assert orange_result["provider"] == AccountProvider.ORANGE_MONEY
+    assert mtn_result["provider"] == AccountProvider.MTN_MOMO
