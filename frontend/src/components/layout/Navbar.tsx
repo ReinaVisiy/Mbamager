@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Sun, Moon, Bell, LogOut, User as UserIcon, Search } from 'lucide-react';
+import { Sun, Moon, Bell, LogOut, User as UserIcon, Search, Menu } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useAppStore } from '../../store/appStore';
@@ -7,9 +7,10 @@ import { Button } from '../ui/Button';
 
 interface NavbarProps {
   onOpenSearch: () => void;
+  onOpenMobileMenu?: () => void;
 }
 
-export function Navbar({ onOpenSearch }: NavbarProps) {
+export function Navbar({ onOpenSearch, onOpenMobileMenu }: NavbarProps) {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const { notifications } = useAppStore();
@@ -17,17 +18,26 @@ export function Navbar({ onOpenSearch }: NavbarProps) {
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <header className="h-16 border-b border-slate-800/60 bg-slate-900 backdrop-blur px-8 flex items-center justify-between z-40 shadow-sm shrink-0">
+    <header className="h-16 border-b border-slate-800/60 bg-slate-900 backdrop-blur px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 z-40 shadow-sm shrink-0">
       {/* Search Bar / Trigger button */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <button
+          onClick={onOpenMobileMenu}
+          className="md:hidden shrink-0 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-slate-100 hover:border-gold/40 cursor-pointer transition-all duration-300"
+          aria-label="Open menu"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+
         <button
           onClick={onOpenSearch}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-gold/40 text-slate-500 hover:text-slate-100 transition-all duration-300 text-xs font-medium cursor-pointer w-48 sm:w-64 justify-between"
+          className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-gold/40 text-slate-500 hover:text-slate-100 transition-all duration-300 text-xs font-medium cursor-pointer w-28 sm:w-48 md:w-64 justify-between min-w-0"
           title="Search anything (Cmd+K)"
         >
-          <div className="flex items-center gap-2">
-            <Search className="w-3.5 h-3.5 text-slate-500" />
-            <span className="text-[11px]">Search accounts, transactions...</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <span className="text-[11px] truncate hidden sm:inline">Search accounts, transactions...</span>
+            <span className="text-[11px] sm:hidden">Search</span>
           </div>
           <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold bg-slate-900 rounded-md border border-slate-800 text-slate-500">
             ⌘K
@@ -40,7 +50,7 @@ export function Navbar({ onOpenSearch }: NavbarProps) {
       </div>
 
       {/* Toolbar / Actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         {/* Toggle Theme button */}
         <button
           onClick={toggleTheme}
@@ -66,8 +76,8 @@ export function Navbar({ onOpenSearch }: NavbarProps) {
         </div>
 
         {/* User profile dropdown and Logout */}
-        <div className="flex items-center gap-3 border-l border-slate-800/80 pl-4">
-          <div className="flex flex-col text-right">
+        <div className="flex items-center gap-2 sm:gap-3 border-l border-slate-800/80 pl-2 sm:pl-4">
+          <div className="hidden sm:flex flex-col text-right">
             <span className="text-xs font-bold text-slate-200">{user?.username || 'Guest'}</span>
             <span className="text-[9px] font-mono text-slate-500">{user?.phone_number || '+237'}</span>
           </div>
