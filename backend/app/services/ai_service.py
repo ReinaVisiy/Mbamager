@@ -49,11 +49,16 @@ class AIService:
         return self._client
 
     def _call_gemini_json(self, prompt: str) -> Optional[Dict[str, Any]]:
-        """
-        Helper method to call Gemini with a prompt and expect a JSON response.
-        """
+        # Callers treat None as "use the deterministic fallback"; the distinct
+        # log levels below are so a missing API key doesn't look like a live
+        # provider outage when someone is triaging logs.
         try:
             client = self.client
+        except ValueError:
+            # Already logged (missing GEMINI_API_KEY) when the client property raised.
+            return None
+
+        try:
             response = client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
@@ -63,11 +68,19 @@ class AIService:
                     response_mime_type="application/json",
                 ),
             )
-            if response and response.text:
-                return json.loads(response.text.strip())
         except Exception as e:
-            logger.error(f"Error calling Gemini API: {str(e)}")
-        return None
+            logger.error(f"Gemini API call failed: {str(e)}")
+            return None
+
+        if not response or not response.text:
+            logger.warning("Gemini returned an empty response.")
+            return None
+
+        try:
+            return json.loads(response.text.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Gemini returned malformed JSON: {str(e)}")
+            return None
 
     def categorize_transaction(
         self,
