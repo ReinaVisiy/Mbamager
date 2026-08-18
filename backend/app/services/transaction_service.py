@@ -37,6 +37,17 @@ class TransactionService(BaseService[Transaction]):
         """
         return await self.repository.get_by_account_id(account_id)
 
+    async def exists_duplicate(
+        self,
+        account_ids: list[int],
+        tx_id_external: str,
+        amount: Decimal,
+        timestamp: datetime,
+    ) -> bool:
+        return await self.repository.exists_duplicate(
+            account_ids, tx_id_external, amount, timestamp
+        )
+
     async def get_by_category(
         self, account_id: int, category: TransactionCategory
     ) -> list[Transaction]:

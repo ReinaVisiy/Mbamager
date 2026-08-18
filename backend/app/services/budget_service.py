@@ -1,7 +1,6 @@
 """
-Mbamager Budget Service
-
-This module contains Budget-related business logic and repository coordination.
+Budget business logic: CRUD plus the deterministic spend-progress calculation
+that BudgetCoach (AI) narrates but never computes (AI Never Owns Money).
 """
 
 from datetime import date
@@ -17,39 +16,23 @@ from app.services.base_service import BaseService
 BudgetProgress = BudgetProgressResponse
 
 class BudgetService(BaseService[Budget]):
-    """
-    Service handling Budget-related business logic and repository coordination.
-    """
-
     def __init__(
         self,
         repository: BudgetRepository,
-        transaction_repository: TransactionRepository | None = None,
+        transaction_repository: TransactionRepository,
     ) -> None:
-        """
-        Initialize the BudgetService with a BudgetRepository and optional TransactionRepository.
-        """
         super().__init__(repository)
         self.transaction_repository = transaction_repository
 
     async def get_by_user_id(self, user_id: int) -> list[Budget]:
-        """
-        Retrieve all budgets belonging to a user.
-        """
         return await self.repository.get_by_user_id(user_id)
 
     async def get_by_category(
         self, user_id: int, category: TransactionCategory
     ) -> Budget | None:
-        """
-        Retrieve the budget for a specific category belonging to a user.
-        """
         return await self.repository.get_by_category(user_id, category)
 
     async def get_active_budgets(self, user_id: int, current_date: date) -> list[Budget]:
-        """
-        Retrieve every budget whose date range includes the supplied date.
-        """
         return await self.repository.get_active_budgets(user_id, current_date)
 
     async def get_user_budget(
@@ -57,11 +40,6 @@ class BudgetService(BaseService[Budget]):
         user_id: int,
         budget_id: int,
     ) -> Budget:
-        """
-        Retrieve the budget by ID.
-        Verify it exists and belongs to the supplied user.
-        Raise ValueError("Budget not found") if either check fails.
-        """
         budget = await self.repository.get_by_id(budget_id)
         if not budget or budget.user_id != user_id:
             raise ValueError("Budget not found")
@@ -72,12 +50,6 @@ class BudgetService(BaseService[Budget]):
         user_id: int,
         budget_data: BudgetCreate,
     ) -> Budget:
-        """
-        Construct the Budget model.
-        Set user_id from the authenticated user.
-        Copy every field from BudgetCreate.
-        Persist using the repository.
-        """
         budget = Budget(
             user_id=user_id,
             category=budget_data.category,
@@ -93,11 +65,6 @@ class BudgetService(BaseService[Budget]):
         budget_id: int,
         budget_data: BudgetUpdate,
     ) -> Budget:
-        """
-        Retrieve the user's budget using get_user_budget().
-        Update only fields supplied by BudgetUpdate.
-        Persist using the repository.
-        """
         budget = await self.get_user_budget(user_id, budget_id)
 
         update_dict = budget_data.model_dump(exclude_unset=True)
@@ -111,39 +78,20 @@ class BudgetService(BaseService[Budget]):
         user_id: int,
         budget_id: int,
     ) -> None:
-        """
-        Retrieve the user's budget using get_user_budget().
-        Delete it through the repository.
-        """
         budget = await self.get_user_budget(user_id, budget_id)
         await self.repository.delete(budget)
 
     async def calculate_budget_progress(self, budget_id: int) -> BudgetProgress:
-        """
-        Retrieve budget, matching transactions, and calculate spending progress.
-        """
         budget = await self.repository.get_by_id(budget_id)
         if not budget:
             raise ValueError("Budget not found")
 
-        # Query all matching DEBIT transactions for same user, same category, within dates
-        from sqlalchemy import select
-        from app.models.account import Account
-        from app.models.transaction import Transaction, TransactionDirection
-
-        stmt = (
-            select(Transaction)
-            .join(Account, Transaction.account_id == Account.id)
-            .where(
-                Account.user_id == budget.user_id,
-                Transaction.category == budget.category,
-                Transaction.direction == TransactionDirection.DEBIT,
-                Transaction.timestamp >= budget.start_date,
-                Transaction.timestamp <= budget.end_date
-            )
+        transactions = await self.transaction_repository.get_debits_for_budget_period(
+            user_id=budget.user_id,
+            category=budget.category,
+            start_date=budget.start_date,
+            end_date=budget.end_date,
         )
-        result = await self.repository.db.execute(stmt)
-        transactions = result.scalars().all()
 
         spent_amount = sum((tx.amount + tx.fee) for tx in transactions) if transactions else Decimal("0.00")
         remaining_amount = budget.limit_amount - spent_amount
@@ -165,12 +113,8 @@ class BudgetService(BaseService[Budget]):
 
     @staticmethod
     def classify_risk_level(percentage_used: Decimal) -> str:
-        """
-        Deterministically classify budget risk from percentage_used.
-        SAFE: under 80% used. WARNING: 80-100% used. EXCEEDED: over 100% used.
-        Kept in the service layer (not the AI layer) per Engineering Law 1 —
-        the AI layer only ever narrates a risk level already decided here.
-        """
+        # Keep risk classification deterministic here; the AI coaching layer
+        # only explains a level this method already decided, never picks it.
         if percentage_used > Decimal("100.00"):
             return "EXCEEDED"
         if percentage_used >= Decimal("80.00"):

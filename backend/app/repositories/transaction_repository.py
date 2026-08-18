@@ -70,6 +70,56 @@ class TransactionRepository(BaseRepository[Transaction]):
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
+    async def exists_duplicate(
+        self,
+        account_ids: list[int],
+        tx_id_external: str,
+        amount,
+        timestamp,
+    ) -> bool:
+        """
+        Check for an existing transaction across the given accounts matching
+        the same external reference, amount, and timestamp. Backs SMS import
+        duplicate detection (a repeated MTN/Orange SMS should not create a
+        second transaction).
+        """
+        if not account_ids:
+            return False
+        stmt = select(Transaction).where(
+            Transaction.account_id.in_(account_ids),
+            Transaction.tx_id_external == tx_id_external,
+            Transaction.amount == amount,
+            Transaction.timestamp == timestamp,
+        )
+        result = await self.db.execute(stmt)
+        return result.first() is not None
+
+    async def get_debits_for_budget_period(
+        self,
+        user_id: int,
+        category: TransactionCategory,
+        start_date: date,
+        end_date: date,
+    ) -> list[Transaction]:
+        """
+        Retrieve DEBIT transactions for a user's budget category within a
+        date range, joined through Account for user scoping (transactions
+        don't carry user_id directly). Backs BudgetService.calculate_budget_progress.
+        """
+        stmt = (
+            select(Transaction)
+            .join(Account, Transaction.account_id == Account.id)
+            .where(
+                Account.user_id == user_id,
+                Transaction.category == category,
+                Transaction.direction == TransactionDirection.DEBIT,
+                Transaction.timestamp >= start_date,
+                Transaction.timestamp <= end_date,
+            )
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
     async def search(self, user_id: int, query: str, limit: int = 5) -> list[Transaction]:
         """
         Search a user's transactions by narrative or category, newest

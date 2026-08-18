@@ -424,27 +424,21 @@ class SMSService(BaseService[SMSMessage]):
         timestamp: datetime
     ) -> bool:
         """
-        Query the database to check if a duplicate transaction already exists.
-        Matches by provider, external reference, amount, and timestamp.
+        Check whether a matching transaction already exists, scoped to the
+        user's active accounts for the given provider. Prevents a re-sent
+        or re-imported MTN/Orange SMS from creating a duplicate transaction.
         """
-        # Get active accounts for this user
         accounts = await self.account_service.get_by_user_id(user_id)
         matching_accs = [acc for acc in accounts if acc.provider == provider and acc.is_active]
         if not matching_accs:
             return False
 
-        # Query transactions belonging to these accounts that match the metadata
-        from sqlalchemy import select
-        from app.models.transaction import Transaction
-
-        stmt = select(Transaction).where(
-            Transaction.account_id.in_([acc.id for acc in matching_accs]),
-            Transaction.tx_id_external == tx_id_external,
-            Transaction.amount == amount,
-            Transaction.timestamp == timestamp
+        return await self.transaction_service.exists_duplicate(
+            account_ids=[acc.id for acc in matching_accs],
+            tx_id_external=tx_id_external,
+            amount=amount,
+            timestamp=timestamp,
         )
-        res = await self.repository.db.execute(stmt)
-        return res.first() is not None
 
     async def import_sms(self, user_id: int, sms_data: SMSImportRequest) -> SMSMessage:
         """
