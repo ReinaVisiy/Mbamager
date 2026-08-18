@@ -20,64 +20,39 @@ class BaseRepository(Generic[T]):
     """
 
     def __init__(self, db: AsyncSession, model: type[T]) -> None:
-        """
-        Initialize the base repository with a database session and target model class.
-        """
         self.db = db
         self.model = model
 
     async def create(self, obj: T) -> T:
-        """
-        Persist a new model instance in the database.
-
-        Refreshes after flush so server-generated columns (e.g. timestamps
-        with onupdate=func.now()) are actually materialized on the object.
-        Without this, SQLAlchemy leaves those attributes expired after
-        flush, and accessing them later during response serialization
-        triggers an implicit lazy load that isn't safe outside of an
-        async-aware context (raises MissingGreenlet).
-        """
+        # Refresh after flush so server-generated columns (e.g. timestamps with
+        # onupdate=func.now()) are materialized. Without this, SQLAlchemy leaves
+        # them expired, and accessing them later during response serialization
+        # triggers an implicit lazy load outside an async-aware context,
+        # raising MissingGreenlet.
         self.db.add(obj)
         await self.db.flush()
         await self.db.refresh(obj)
         return obj
 
     async def get_by_id(self, id: int) -> T | None:
-        """
-        Retrieve a single model instance by its unique integer identifier.
-        """
         return await self.db.get(self.model, id)
 
     async def get_all(self) -> list[T]:
-        """
-        Retrieve all instances of the target model from the database.
-        """
         stmt = select(self.model)
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
     async def update(self, obj: T) -> T:
-        """
-        Update an existing model instance and flush the session.
-
-        Refreshes after flush for the same reason as create() — onupdate
-        columns are left expired otherwise and crash on later access.
-        """
+        # Same refresh requirement as create(), see comment above.
         self.db.add(obj)
         await self.db.flush()
         await self.db.refresh(obj)
         return obj
 
     async def delete(self, obj: T) -> None:
-        """
-        Remove a model instance from the database and flush the session.
-        """
         await self.db.delete(obj)
         await self.db.flush()
 
     async def exists(self, id: int) -> bool:
-        """
-        Check if a model instance exists with the given integer identifier.
-        """
         obj = await self.get_by_id(id)
         return obj is not None
