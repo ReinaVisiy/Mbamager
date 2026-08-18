@@ -222,7 +222,7 @@ async def reclassify_transaction(
             timestamp=tx.timestamp.isoformat() if tx.timestamp else None,
         )
         return TransactionReclassifyResponse(
-            predicted_category=prediction.get("category", "EXPENSE_FOOD"),
+            predicted_category=prediction.get("category", "UNCATEGORIZED"),
             confidence=prediction.get("confidence", 0.50),
         )
     except ValueError as e:

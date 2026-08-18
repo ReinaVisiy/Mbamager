@@ -98,25 +98,34 @@ class AIService:
                 "confidence": confidence,
             }
 
-        # Safe mock / deterministic fallback if API is unavailable or fails
-        fallback_category = "EXPENSE_FOOD"
+        # When Gemini is unavailable, only assign a specific category if the
+        # narrative contains a clear keyword match. Otherwise stay honest
+        # about not knowing rather than guessing a specific category: an
+        # unlabeled MTN/Orange credit is not necessarily a salary, and an
+        # unlabeled debit is not necessarily food.
+        narrative_lower = (narrative or "").lower()
+        fallback_category = None
+        fallback_confidence = 0.0
+
         if direction == "CREDIT":
-            fallback_category = "INCOME_SALARY"
-            if "commission" in (narrative or "").lower():
-                fallback_category = "INCOME_BUSINESS"
+            if "commission" in narrative_lower:
+                fallback_category, fallback_confidence = "INCOME_BUSINESS", 0.50
         else:
-            if "commission" in (narrative or "").lower() or "fee" in (narrative or "").lower():
-                fallback_category = "EXPENSE_COMMISSION"
-            elif "taxi" in (narrative or "").lower() or "transport" in (narrative or "").lower():
-                fallback_category = "EXPENSE_TRANSPORT"
-            elif "school" in (narrative or "").lower() or "tuition" in (narrative or "").lower():
-                fallback_category = "EXPENSE_EDUCATION"
-            elif "hospital" in (narrative or "").lower() or "medical" in (narrative or "").lower() or "pharmacy" in (narrative or "").lower():
-                fallback_category = "EXPENSE_HEALTH"
+            if "commission" in narrative_lower or "fee" in narrative_lower:
+                fallback_category, fallback_confidence = "EXPENSE_COMMISSION", 0.50
+            elif "taxi" in narrative_lower or "transport" in narrative_lower:
+                fallback_category, fallback_confidence = "EXPENSE_TRANSPORT", 0.50
+            elif "school" in narrative_lower or "tuition" in narrative_lower:
+                fallback_category, fallback_confidence = "EXPENSE_EDUCATION", 0.50
+            elif "hospital" in narrative_lower or "medical" in narrative_lower or "pharmacy" in narrative_lower:
+                fallback_category, fallback_confidence = "EXPENSE_HEALTH", 0.50
+
+        if fallback_category is None:
+            fallback_category = "UNCATEGORIZED"
 
         return {
             "category": fallback_category,
-            "confidence": 0.50,
+            "confidence": fallback_confidence,
             "fallback": True,
         }
 
@@ -227,7 +236,7 @@ class AIService:
         for tx in transactions:
             if tx.get("direction") == "DEBIT":
                 amt = float(tx.get("amount", 0.0))
-                cat = tx.get("category", "EXPENSE_FOOD")
+                cat = tx.get("category", "UNCATEGORIZED")
                 top_cats[cat] = top_cats.get(cat, 0.0) + amt
                 if amt > largest_exp["amount"]:
                     largest_exp = {"narrative": tx.get("narrative", "Expense"), "amount": amt}
@@ -512,7 +521,7 @@ class AIService:
         for tx in transactions:
             amt = float(tx.get("amount", 0.0))
             direction = tx.get("direction", "")
-            category = tx.get("category", "EXPENSE_FOOD")
+            category = tx.get("category", "UNCATEGORIZED")
             if direction == "CREDIT":
                 total_income += amt
             else:

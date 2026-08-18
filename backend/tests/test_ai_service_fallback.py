@@ -28,7 +28,9 @@ def test_categorize_transaction_falls_back_without_api_key():
     assert result["confidence"] == 0.50
 
 
-def test_categorize_transaction_fallback_defaults_credit_to_salary():
+def test_categorize_transaction_fallback_stays_uncategorized_for_unlabeled_credit():
+    # With no keyword match and no live model, the fallback must not guess a
+    # specific category (an unlabeled credit is not necessarily a salary).
     service = _service()
     result = service.categorize_transaction(
         amount=Decimal("150000.00"),
@@ -36,10 +38,12 @@ def test_categorize_transaction_fallback_defaults_credit_to_salary():
         fee=Decimal("0.00"),
         narrative="Monthly payment received",
     )
-    assert result["category"] == "INCOME_SALARY"
+    assert result["category"] == "UNCATEGORIZED"
+    assert result["confidence"] == 0.0
 
 
-def test_categorize_transaction_fallback_defaults_debit_to_food():
+def test_categorize_transaction_fallback_stays_uncategorized_for_unlabeled_debit():
+    # Same principle for debits: an unlabeled expense is not necessarily food.
     service = _service()
     result = service.categorize_transaction(
         amount=Decimal("2000.00"),
@@ -47,7 +51,8 @@ def test_categorize_transaction_fallback_defaults_debit_to_food():
         fee=Decimal("0.00"),
         narrative="Unlabelled payment",
     )
-    assert result["category"] == "EXPENSE_FOOD"
+    assert result["category"] == "UNCATEGORIZED"
+    assert result["confidence"] == 0.0
 
 
 def test_detect_anomaly_flags_disproportionate_fee():
