@@ -325,8 +325,8 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         Assess a free-text SMS/message/link for common Mobile Money scam patterns
-        (SENTINEL). Never blocks or acts on anything itself — per Engineering Law 1,
-        this is advisory only; the user decides what to do with the assessment.
+        (SENTINEL). This is advisory only and never blocks or acts on anything
+        itself; the user decides what to do with the assessment.
         """
         prompt = SCAM_ANALYSIS_PROMPT.format(
             sender=sender or "Unknown",
@@ -411,10 +411,9 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         Generate friendly, actionable coaching for a single budget (COMPASS).
-        Consumes deterministic progress metrics computed by BudgetService —
-        per Engineering Law 1, this never calculates or writes budget figures
-        itself, it only turns already-computed numbers into plain-language
-        guidance.
+        Consumes deterministic progress metrics computed by BudgetService and
+        never calculates or writes budget figures itself; it only turns
+        already-computed numbers into plain-language guidance.
         """
         prompt = BUDGET_COACH_PROMPT.format(
             category=category,
@@ -491,8 +490,8 @@ class AIService:
         """
         Generate a conversational reply for the GUIDE financial assistant chat.
         Only ever reasons about the transactions/budgets it's given (already
-        fetched from the real ledger by the caller) — never invents figures,
-        and never writes to the ledger itself (Engineering Law 1).
+        fetched from the real ledger by the caller); never invents figures,
+        and never writes to the ledger itself.
         """
         prompt = FINANCIAL_ASSISTANT_PROMPT.format(
             transactions_json=json.dumps(transactions, default=str),
@@ -523,7 +522,7 @@ class AIService:
         """
         Rule-based reply used only when Gemini is unavailable. Reasons purely
         over the transactions/budgets already computed by the deterministic
-        ledger — never estimates or invents figures.
+        ledger; never estimates or invents figures.
         """
         query = (message or "").lower()
         debit_totals: Dict[str, float] = {}
@@ -614,10 +613,10 @@ class AIService:
         Unlike the other AI methods, there is deliberately NO rule-based
         fallback here if Gemini is unavailable: guessing at a transaction
         amount/direction from unstructured text without any deterministic
-        signal to fall back on would risk fabricating a ledger entry, which
-        directly violates Engineering Law 1 (AI never owns the ledger). If
-        Gemini can't help, this returns None and the message is left
-        unprocessed for manual review - a clean failure, not a guess.
+        signal to fall back on would risk fabricating a ledger entry that
+        was never actually confirmed. If Gemini can't help, this returns
+        None and the message is left unprocessed for manual review, a clean
+        failure rather than a guess.
         """
         prompt = SMS_PARSER_PROMPT.format(sender=sender or "Unknown", text=text)
 
