@@ -29,7 +29,7 @@ Mbamager is designed around a strictly decoupled, modular Clean Architecture to 
 
 ### Layer Boundaries and Responsibilities
 
-1. **Routers (`app/routers/`)**
+1. **Routers (`app/api/routes/`)**
    - **Role:** Entrypoints for HTTP/REST communication.
    - **Rules:** They *only* receive input payloads (requests), trigger service-layer functions, and return JSON serializations (responses). They must **never** write business calculations, direct database queries, or trigger core AI API calls directly.
 

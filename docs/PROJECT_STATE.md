@@ -45,8 +45,8 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 ---
 
 ## 6. Current Sprint
-*   **Active Sprint:** Sprint 8 complete — all 5 items from the last master review are closed. See Section 7.
-*   **Goal going forward:** Keep expanding test coverage (AI services still untested).
+*   **Active Sprint:** Sprint 8 complete, all 5 items from the last master review are closed. See Section 7.
+*   **Goal going forward:** codebase cleanup on `refactor/ai-slop-cleanup` (fixing service/repository boundary violations, removing misleading AI fallback defaults, and differentiating Gemini failure logging) rather than new features.
 
 ---
 
@@ -85,19 +85,21 @@ The technical architecture of Mbamager is **frozen** and follows a strictly deco
 *   [x] Added a startup check (`Settings._reject_insecure_jwt_secret_in_production` in `core/config.py`) that refuses to run with the hardcoded `JWT_SECRET_KEY` placeholder when `DEBUG=False`, closing the publicly-known-secret risk.
 *   [x] Added Dockerfiles for the backend and frontend and wired both into `docker-compose.yml`, so `docker compose up` brings up the full stack (previously only Postgres was containerized).
 *   [x] Expanded test coverage to 99 tests total.
+*   [x] Added AI service test coverage (`test_ai_service_fallback.py`, `test_ai_service_gemini_success.py`): the fallback path for categorization, anomaly detection, and budget coaching, plus a mocked Gemini success path for every public `AIService` method, including SENTINEL and GUIDE, which previously had none. Gemini itself is never called for real (the sandbox's network allowlist excludes `generativelanguage.googleapis.com`); the client is mocked instead. Test suite: 99 to 106.
+*   [x] **Cleanup pass (`refactor/ai-slop-cleanup`):** fixed two service/repository boundary violations where `BudgetService` and `SmsService` ran raw SQL against a foreign repository's session, moved the queries into proper `TransactionRepository` methods. Replaced the misleading AI categorization fallback (unknown debits defaulted to "Food & Groceries", unknown credits to "Salary/Wages") with an `"UNCATEGORIZED"` fallback that safely fails validation rather than silently inventing a specific category. Differentiated Gemini failure logging in `_call_gemini_json` (missing key, provider failure, empty response, malformed JSON) instead of one blanket `except Exception`.
 
 ---
 
 ## 8. Pending Tasks
 
 ### Sprint 9 — Hardening & follow-through (current)
-*   [ ] Continue expanding test coverage — transactions, SMS Stage-1 parsing, budget risk classification, savings goals, recurring transactions, tontine rotation, and search are now tested (99 tests total), but the AI services (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE) remain untested since they require a live Gemini API key to exercise meaningfully.
-*   [ ] `google-genai` SDK pin has not been smoke-tested against a live Gemini API call yet (no API key available in the review environment) — recommend testing against a real key before relying on it in production.
+*   [ ] `google-genai` SDK pin has not been smoke-tested against a live Gemini API call yet (no API key available in the review environment); recommend testing against a real key before relying on it in production.
+*   [ ] No neutral `UNCATEGORIZED`/`OTHER` value exists in the `TransactionCategory` enum. The categorization fallback currently relies on that string failing validation rather than a real neutral category; adding one requires a migration and is intentionally out of scope for the current cleanup (see Section 13).
 
 ---
 
 ## 9. Next Immediate Task
-*   **Sprint 9:** Continue expanding AI service test coverage (M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, GUIDE remain untested).
+*   **Sprint 9:** Continue the `refactor/ai-slop-cleanup` pass (dead code, comment/docstring cleanup, README).
 
 ---
 
@@ -158,8 +160,8 @@ mbamager/
 ---
 
 ## 13. Known Limitations (Sprint 9)
-*   **AI services untested:** M-PARSE Stage 2, SENTINEL, COMPASS, PULSE, and GUIDE require a live Gemini API key to test meaningfully and remain uncovered. Everything else (transactions, SMS Stage-1, budgets, goals, recurring, tontine rotation, search) has test coverage — 99 tests total.
-*   **`google-genai` SDK pin untested against a live key:** no Gemini API key is available in the review environment, so the pin hasn't been smoke-tested against a real call.
+*   **`google-genai` SDK pin untested against a live key:** no Gemini API key is available in the review environment, so the pin hasn't been smoke-tested against a real call. All AI service tests mock the Gemini client rather than calling it.
+*   **No neutral transaction category exists in the schema:** the `TransactionCategory` enum has no `OTHER`/`UNCATEGORIZED` value. The AI categorization fallback for unknown transactions uses an `"UNCATEGORIZED"` string that deliberately fails the enum cast (caught and ignored) instead of guessing a specific category, but adding a real neutral enum value would need an Alembic migration and has been left for a future change.
 
 ---
 
@@ -177,3 +179,4 @@ mbamager/
 *   **2026-07-26 (cont'd):** Began expanding test coverage per Section 8. Writing tests for transaction creation surfaced a real bug: `BaseRepository.create()`/`update()` never refreshed after `flush()`, so `onupdate=func.now()` columns crashed API responses with `MissingGreenlet` (`fix #14`). Added 23 new tests across transactions, SMS Stage-1 parsing, and budget risk classification (`fix #15`).
 *   **2026-07-27:** Closed the last master-review list. Verified `google-genai` pin against current Gemini 3.x (`fix #17`). Built Sprint 7 (Njangi/Tontine groups) end-to-end on the backend: 4 new models, repositories, `TontineService` with rotation logic, REST routes, an Alembic migration, and 6 tests. Built Sprint 8 (search at scale): replaced client-side-only `GlobalSearch.tsx` with a real `/api/v1/search` endpoint backed by scoped, SQL-level queries per entity type, plus 4 tests; frontend now debounces before calling it. Ran a full `ruff` pass and fixed the 8 genuine lint findings (`fix #18`). Test suite: 28 → 64.
 *   **2026-07-27 (cont'd):** Master-review follow-through: implemented `/auth/refresh` end-to-end, made profile management (name/phone/email) editable from `/auth/me` and the UI, and wired real backend session-duration logic behind "Remember Me". Added Dockerfiles for the backend and frontend and wired both into `docker-compose.yml` so the full stack runs via `docker compose up`. Corrected this document's stale claims: the Tontine/Njangi frontend (`pages/Tontine.tsx`) is built and shipped, not pending; the `JWT_SECRET_KEY` production-default risk was already closed by a startup check in `core/config.py`; and the test count was updated from a stale 64 to the actual current count of 99.
+*   **2026-08-18:** Started the `refactor/ai-slop-cleanup` branch: an engineering cleanup pass, not a feature or architecture change. Fixed the `BudgetService`/`SmsService` repository boundary violations, replaced the misleading category-guessing AI fallback with a neutral, validation-safe one, added real (mocked) test coverage for the AI services that this document previously and incorrectly listed as untested, and differentiated Gemini failure logging. Corrected `docs/ARCHITECTURE.md`, which still referenced the removed `app/routers/` package instead of the actual `app/api/routes/`.
